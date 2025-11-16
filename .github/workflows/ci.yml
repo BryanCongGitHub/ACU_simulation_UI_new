@@ -15,9 +15,23 @@ jobs:
         python-version: [3.11]
     env:
       PYTHONPATH: ${{ github.workspace }}
+      QT_QPA_PLATFORM: offscreen
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 \
+            libgl1 \
+            libxcb-xinerama0 \
+            libxkbcommon-x11-0 \
+            libfontconfig1 \
+            libdbus-1-3 \
+            mesa-utils \
+            xvfb
 
       - name: Set up Python
         uses: actions/setup-python@v4
