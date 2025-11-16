@@ -8,12 +8,16 @@ import time
 from datetime import datetime
 from collections import deque
 from typing import Any, Deque, Dict, List, Tuple
-import psutil
 import gc
 import logging
 from logging.handlers import RotatingFileHandler
 import json
 from pathlib import Path
+
+try:
+    import psutil
+except ImportError:  # pragma: no cover - optional dependency when running local tests
+    psutil = None  # type: ignore[assignment]
 
 from setup_qt_environment import setup_qt_environment
 
@@ -1860,6 +1864,11 @@ INV设备端口分配:
 
     def check_memory_usage(self):
         """检查内存使用情况"""
+        if psutil is None:
+            self.memory_status_label.setText("内存监控: psutil 未安装")
+            self.memory_status_label.setStyleSheet("")
+            return
+
         process = psutil.Process()
         memory_info = process.memory_info()
         memory_mb = memory_info.rss / 1024 / 1024
