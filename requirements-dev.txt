@@ -3,6 +3,7 @@ pytest-qt
 PySide6
 pyqtgraph
 numpy
+psutil
 mypy
 black
 flake8
