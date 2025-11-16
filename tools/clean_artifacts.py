@@ -1,9 +1,9 @@
 """Utility script to remove build artifacts and caches."""
+
 from __future__ import annotations
 
 import argparse
 import itertools
-import os
 from pathlib import Path
 import shutil
 from typing import Iterable
@@ -53,7 +53,9 @@ def remove_path(path: Path, dry_run: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Remove build/cached artifacts.")
-    parser.add_argument("--dry-run", action="store_true", help="List targets without deleting.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="List targets without deleting."
+    )
     args = parser.parse_args()
 
     for target in sorted(set(_iter_targets())):

@@ -1,17 +1,19 @@
-import sys, os
+import os
+import sys
 import pytest
 
-# 保证项目根在路径中
+# 保证项目根在路径中（必须在其它本地导入之前）
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from ACU_simulation import ACUSimulator
-from controllers.parse_controller import ParseController
-from controllers.frame_builder import FrameBuilder
-from model.control_state import ControlState
-from model.device import Device, DeviceConfig
-from views.event_bus import ViewEventBus
+from ACU_simulation import ACUSimulator  # noqa: E402
+from controllers.parse_controller import ParseController  # noqa: E402
+from controllers.frame_builder import FrameBuilder  # noqa: E402
+from model.control_state import ControlState  # noqa: E402
+from model.device import Device  # noqa: E402
+from model.device import DeviceConfig  # noqa: E402
+from views.event_bus import ViewEventBus  # noqa: E402
 
 
 class DummyComm:
@@ -43,16 +45,32 @@ def test_periodic_send_emits_and_threads_stop(qtbot, period_ms):
     comm = DummyComm()
     parse = ParseController()
     state = ControlState()
-    device = Device(DeviceConfig(name="ACU", ip="127.0.0.1", send_port=40000, receive_port=40001, category="ACU"))
+    device = Device(
+        DeviceConfig(
+            name="ACU",
+            ip="127.0.0.1",
+            send_port=40000,
+            receive_port=40001,
+            category="ACU",
+        )
+    )
     frame = FrameBuilder(state, device)
     bus = ViewEventBus()
 
-    win = ACUSimulator(comm=comm, parse_controller=parse, control_state=state,
-                       acu_device=device, frame_builder=frame, view_bus=bus)
+    win = ACUSimulator(
+        comm=comm,
+        parse_controller=parse,
+        control_state=state,
+        acu_device=device,
+        frame_builder=frame,
+        view_bus=bus,
+    )
     qtbot.addWidget(win)
 
     counters = {"send": 0}
-    bus.waveform_send.connect(lambda *_: counters.__setitem__("send", counters["send"] + 1))
+    bus.waveform_send.connect(
+        lambda *_: counters.__setitem__("send", counters["send"] + 1)
+    )
 
     win.period_spin.setValue(period_ms)
     win.start_communication()
@@ -62,7 +80,7 @@ def test_periodic_send_emits_and_threads_stop(qtbot, period_ms):
     assert counters["send"] >= 2
     win.stop_communication()
 
-    parse_thread = getattr(win, 'parse_worker_thread', None)
-    fmt_thread = getattr(win, 'format_worker_thread', None)
+    parse_thread = getattr(win, "parse_worker_thread", None)
+    fmt_thread = getattr(win, "format_worker_thread", None)
     assert parse_thread is None or not parse_thread.is_alive()
     assert fmt_thread is None or not fmt_thread.is_alive()

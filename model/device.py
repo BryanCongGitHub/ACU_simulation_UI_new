@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict
 
+
 @dataclass
 class DeviceConfig:
     name: str
@@ -9,11 +10,13 @@ class DeviceConfig:
     receive_port: Optional[int] = None
     category: str = "UNKNOWN"  # INV / CHU / BCC / ACU
 
+
 @dataclass
 class DeviceState:
     life_signal: int = 0
     last_seen_timestamp: Optional[float] = None
     parsed_cache: Dict[str, Dict] = field(default_factory=dict)
+
 
 @dataclass
 class Device:

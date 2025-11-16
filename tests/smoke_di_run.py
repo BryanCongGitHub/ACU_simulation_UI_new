@@ -6,20 +6,36 @@
 - 验证停止后后台解析/格式化线程已退出
 """
 
-import sys, os
-# 确保项目根目录在路径中（便于直接导入 ACU_simulation）
+import os
+import sys
+
+# Ensure project root is on sys.path before importing local modules
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer
 
-from ACU_simulation import ACUSimulator
-from controllers.parse_controller import ParseController
-from controllers.frame_builder import FrameBuilder
-from model.control_state import ControlState
-from model.device import Device, DeviceConfig
-from views.event_bus import ViewEventBus
+from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import QTimer  # noqa: E402
+
+try:
+    from ACU_simulation import ACUSimulator  # noqa: E402
+    from controllers.parse_controller import ParseController  # noqa: E402
+    from controllers.frame_builder import FrameBuilder  # noqa: E402
+    from model.control_state import ControlState  # noqa: E402
+    from model.device import Device  # noqa: E402
+    from model.device import DeviceConfig  # noqa: E402
+    from views.event_bus import ViewEventBus  # noqa: E402
+except Exception:
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    from ACU_simulation import ACUSimulator  # noqa: E402
+    from controllers.parse_controller import ParseController  # noqa: E402
+    from controllers.frame_builder import FrameBuilder  # noqa: E402
+    from model.control_state import ControlState  # noqa: E402
+    from model.device import Device  # noqa: E402
+    from model.device import DeviceConfig  # noqa: E402
+    from views.event_bus import ViewEventBus  # noqa: E402
 
 
 class DummyComm:
@@ -53,17 +69,33 @@ def main():
     comm = DummyComm()
     parse = ParseController()
     state = ControlState()
-    device = Device(DeviceConfig(name="ACU", ip="127.0.0.1", send_port=40000, receive_port=40001, category="ACU"))
+    device = Device(
+        DeviceConfig(
+            name="ACU",
+            ip="127.0.0.1",
+            send_port=40000,
+            receive_port=40001,
+            category="ACU",
+        )
+    )
     frame = FrameBuilder(state, device)
     bus = ViewEventBus()
 
-    win = ACUSimulator(comm=comm, parse_controller=parse, control_state=state,
-                       acu_device=device, frame_builder=frame, view_bus=bus)
+    win = ACUSimulator(
+        comm=comm,
+        parse_controller=parse,
+        control_state=state,
+        acu_device=device,
+        frame_builder=frame,
+        view_bus=bus,
+    )
 
     # 统计周期发送次数
     counters = {"send": 0}
+
     def on_send(_buf, _ts):
         counters["send"] += 1
+
     bus.waveform_send.connect(on_send)
 
     # 设置较快的周期
@@ -76,11 +108,15 @@ def main():
         win.stop_communication()
         # 检查发送次数与线程状态
         ok_send = counters["send"] >= 2
-        parse_alive = getattr(win, 'parse_worker_thread', None)
-        fmt_alive = getattr(win, 'format_worker_thread', None)
+        parse_alive = getattr(win, "parse_worker_thread", None)
+        fmt_alive = getattr(win, "format_worker_thread", None)
         parse_ok = (parse_alive is None) or (not parse_alive.is_alive())
         fmt_ok = (fmt_alive is None) or (not fmt_alive.is_alive())
-        print(f"waveform_send_count>=2: {ok_send}, parse_stopped: {parse_ok}, format_stopped: {fmt_ok}")
+        summary = (
+            f"waveform_send_count>=2: {ok_send}, "
+            f"parse_stopped: {parse_ok}, format_stopped: {fmt_ok}"
+        )
+        print(summary)
         app.quit()
 
     # 调度：启动 -> 500ms 后停止并检查 -> 退出

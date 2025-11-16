@@ -1,5 +1,9 @@
 Param(
-    [string[]]$TestTargets = @("tests/test_protocol_parser.py")
+    [string[]]$TestTargets = @(
+        "tests/test_ui_integration.py",
+        "tests/test_smoke_send_pytest.py",
+        "tests/test_smoke_receive_pytest.py"
+    )
 )
 
 if (-not $TestTargets -or $TestTargets.Count -eq 0) {
@@ -8,6 +12,16 @@ if (-not $TestTargets -or $TestTargets.Count -eq 0) {
 
 $old = $env:PYTHONDONTWRITEBYTECODE
 $env:PYTHONDONTWRITEBYTECODE = '1'
+try {
+    # Ensure project root is on PYTHONPATH so tests can import local modules
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    $env:PYTHONPATH = $repoRoot
+    Write-Verbose "PYTHONPATH set to $repoRoot"
+}
+catch {
+    # fallback to current directory
+    $env:PYTHONPATH = (Get-Location).Path
+}
 try {
     python -m pytest @TestTargets
 }

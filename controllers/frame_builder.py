@@ -1,11 +1,12 @@
-import struct, time
-from typing import Dict, Any
+import time
 from model.control_state import ControlState
 from model.device import Device
 from model.protocols.inv_protocol import InvLikeProtocol
 
+
 class FrameBuilder:
     """根据控制状态与协议构建发送帧，解耦 ACUSimulator 的逻辑。"""
+
     def __init__(self, control_state: ControlState, acu_device: Device):
         self.control_state = control_state
         self.acu_device = acu_device

@@ -1,19 +1,22 @@
-import socket, threading
+import socket
+import threading
 from typing import Callable, Optional
+
 
 class CommunicationController:
     """管理底层UDP通信，提供回调注册。"""
+
     def __init__(self):
         self.send_sock: Optional[socket.socket] = None
         self.recv_sock: Optional[socket.socket] = None
         self.running = False
         self.config = {
-            'acu_ip': '10.2.0.1',
-            'acu_send_port': 49152,
-            'acu_receive_port': 49156,
-            'target_ip': '10.2.0.5',
-            'target_receive_port': 49152,
-            'period_ms': 100
+            "acu_ip": "10.2.0.1",
+            "acu_send_port": 49152,
+            "acu_receive_port": 49156,
+            "target_ip": "10.2.0.5",
+            "target_receive_port": 49152,
+            "period_ms": 100,
         }
         self._receive_thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()
@@ -33,10 +36,10 @@ class CommunicationController:
                 self._teardown(emit_status=False)
                 self.send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 # 绑定发送端口（本地端口），若配置不合适会抛出异常
-                self.send_sock.bind(('0.0.0.0', self.config['acu_send_port']))
+                self.send_sock.bind(("0.0.0.0", self.config["acu_send_port"]))
                 self.recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self.recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self.recv_sock.bind(('0.0.0.0', self.config['acu_receive_port']))
+                self.recv_sock.bind(("0.0.0.0", self.config["acu_receive_port"]))
                 self.recv_sock.settimeout(0.5)
                 self.running = True
                 self._emit_status("Socket初始化成功")
@@ -75,7 +78,11 @@ class CommunicationController:
         try:
             with self._lock:
                 if self.send_sock:
-                    self.send_sock.sendto(data, (self.config['target_ip'], self.config['target_receive_port']))
+                    target = (
+                        self.config["target_ip"],
+                        self.config["target_receive_port"],
+                    )
+                    self.send_sock.sendto(data, target)
         except Exception as e:
             self._emit_error(f"发送错误: {e}")
 
@@ -84,9 +91,11 @@ class CommunicationController:
             self._teardown(emit_status=True)
 
     def _teardown(self, emit_status: bool):
-        # Close sockets/threads safely; optionally emit status to avoid noisy setup() calls
-        # 注意：调用此函数时应已持有 self._lock（若外部需要并发保护，请在外部加锁）
-        had_resources = any([self.send_sock, self.recv_sock, self._receive_thread, self.running])
+        # Close sockets/threads safely; emit status optionally.
+        # 注意：调用此函数时应已持有 self._lock
+        had_resources = any(
+            [self.send_sock, self.recv_sock, self._receive_thread, self.running]
+        )
         self.running = False
         if self.send_sock:
             try:
@@ -101,7 +110,10 @@ class CommunicationController:
                 pass
             self.recv_sock = None
         try:
-            if self._receive_thread is not None and threading.current_thread() is not self._receive_thread:
+            if (
+                self._receive_thread is not None
+                and threading.current_thread() is not self._receive_thread
+            ):
                 self._receive_thread.join(timeout=1.0)
         except Exception:
             pass
@@ -111,6 +123,9 @@ class CommunicationController:
             self._emit_status("通信已停止")
 
     def _emit_error(self, msg):
-        if self.on_error: self.on_error(msg)
+        if self.on_error:
+            self.on_error(msg)
+
     def _emit_status(self, msg):
-        if self.on_status: self.on_status(msg)
+        if self.on_status:
+            self.on_status(msg)

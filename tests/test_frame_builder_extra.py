@@ -1,24 +1,28 @@
-import time
 from types import SimpleNamespace
 
 from model.control_state import ControlState
-from model.device import Device, DeviceConfig
+from model.device import Device
+from model.device import DeviceConfig
 from controllers.frame_builder import FrameBuilder
 
 
 def fake_localtime():
     # return an object with tm_year, tm_mon, tm_mday, tm_hour, tm_min, tm_sec
-    return SimpleNamespace(tm_year=2025, tm_mon=11, tm_mday=15, tm_hour=12, tm_min=34, tm_sec=56)
+    return SimpleNamespace(
+        tm_year=2025, tm_mon=11, tm_mday=15, tm_hour=12, tm_min=34, tm_sec=56
+    )
 
 
 def test_build_writes_timestamp_and_increments_life(monkeypatch):
     cs = ControlState()
-    cfg = DeviceConfig(name='TST', ip='127.0.0.1', send_port=50000)
+    cfg = DeviceConfig(name="TST", ip="127.0.0.1", send_port=50000)
     dev = Device(cfg)
     fb = FrameBuilder(cs, dev)
 
     # freeze localtime
-    monkeypatch.setattr('controllers.frame_builder.time.localtime', lambda: fake_localtime())
+    monkeypatch.setattr(
+        "controllers.frame_builder.time.localtime", lambda: fake_localtime()
+    )
 
     buf1 = fb.build()
     # life first increment -> 1
@@ -40,7 +44,7 @@ def test_build_applies_bool_commands():
     cs = ControlState()
     # set a boolean command at byte 10 bit 3
     cs.bool_commands[(10, 3)] = True
-    cfg = DeviceConfig(name='TST', ip='127.0.0.1', send_port=50000)
+    cfg = DeviceConfig(name="TST", ip="127.0.0.1", send_port=50000)
     dev = Device(cfg)
     fb = FrameBuilder(cs, dev)
     buf = fb.build()
@@ -50,7 +54,7 @@ def test_build_applies_bool_commands():
 def test_build_encodes_frequency_control():
     cs = ControlState()
     cs.freq_controls[20] = 55.5  # Hz
-    cfg = DeviceConfig(name='TST', ip='127.0.0.1', send_port=50000)
+    cfg = DeviceConfig(name="TST", ip="127.0.0.1", send_port=50000)
     dev = Device(cfg)
     fb = FrameBuilder(cs, dev)
     buf = fb.build()
@@ -62,7 +66,7 @@ def test_build_encodes_voltage_and_temperature():
     cs = ControlState()
     cs.branch_voltages[100] = 125.0  # volts
     cs.battery_temp = 37  # degC
-    cfg = DeviceConfig(name='TST', ip='127.0.0.1', send_port=50000)
+    cfg = DeviceConfig(name="TST", ip="127.0.0.1", send_port=50000)
     dev = Device(cfg)
     fb = FrameBuilder(cs, dev)
     buf = fb.build()

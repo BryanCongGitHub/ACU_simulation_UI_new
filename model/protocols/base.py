@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
+
 class BaseProtocol(ABC):
     """设备协议基类：提供构建发送帧与解析接收帧的统一接口。"""
 
@@ -9,7 +10,9 @@ class BaseProtocol(ABC):
     frame_length_receive: int = 0
 
     @abstractmethod
-    def build_send_frame(self, control_snapshot: Dict[str, Any], life_signal: int) -> bytearray:
+    def build_send_frame(
+        self, control_snapshot: Dict[str, Any], life_signal: int
+    ) -> bytearray:
         """构建发送帧。返回 bytearray。"""
         raise NotImplementedError
 

@@ -4,8 +4,6 @@ import threading
 import time
 from unittest.mock import patch
 
-import pytest
-
 from controllers.communication_controller import CommunicationController
 
 
@@ -70,7 +68,9 @@ class FakeSocketFactory:
 
 
 def patch_sockets(factory):
-    return patch('controllers.communication_controller.socket.socket', side_effect=factory)
+    return patch(
+        "controllers.communication_controller.socket.socket", side_effect=factory
+    )
 
 
 def test_setup_is_idempotent_and_recycles_sockets():
@@ -114,7 +114,7 @@ def test_stop_can_run_concurrently_with_setup():
 
     def setup_target():
         with patch_sockets(factory):
-            setup_result['value'] = ctrl.setup()
+            setup_result["value"] = ctrl.setup()
 
     setup_thread = threading.Thread(target=setup_target)
     setup_thread.start()
@@ -131,7 +131,7 @@ def test_stop_can_run_concurrently_with_setup():
     setup_thread.join(timeout=1.0)
     stop_thread.join(timeout=1.0)
 
-    assert setup_result.get('value') is True
+    assert setup_result.get("value") is True
     assert ctrl.running is False
     # All sockets should be closed by the stop() we invoked while setup was running
     assert all(sock.closed for sock in factory.instances)

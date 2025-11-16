@@ -11,7 +11,9 @@ class ProtocolParser:
 
     @staticmethod
     def parse_inv_data(*_, **__):
-        raise RuntimeError("ProtocolParser.parse_inv_data was removed; use InvLikeProtocol")
+        raise RuntimeError(
+            "ProtocolParser.parse_inv_data was removed; use InvLikeProtocol"
+        )
 
     @staticmethod
     def get_device_type_from_port(*_, **__):

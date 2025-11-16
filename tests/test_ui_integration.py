@@ -1,5 +1,5 @@
-import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
+from PySide6.QtCore import Signal
 
 from waveform_controller import WaveformController
 from waveform_display import WaveformDisplay
@@ -14,7 +14,7 @@ class StubBus(QObject):
 def test_waveform_controller_timer_emits(qtbot):
     wc = WaveformController()
     # ensure timer conditions are met
-    wc.selected_signals.add('send_test')
+    wc.selected_signals.add("send_test")
     wc.start_recording()
 
     # wait for a single data_updated emission (timer runs at 200ms)
