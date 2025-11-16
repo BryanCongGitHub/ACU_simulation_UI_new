@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Build & Dist
+build/
+dist/
+*.spec
+
+# pytest cache
+.pytest_cache/
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

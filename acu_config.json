@@ -1,0 +1,8 @@
+{
+  "acu_ip": "10.2.0.1",
+  "acu_send_port": 49152,
+  "acu_receive_port": 49156,
+  "target_ip": "10.2.0.6",
+  "target_receive_port": 49152,
+  "period_ms": 80
+}

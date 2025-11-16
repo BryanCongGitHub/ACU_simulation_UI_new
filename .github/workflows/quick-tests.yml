@@ -1,0 +1,37 @@
+name: Quick Tests
+
+on:
+  push:
+    branches: [ main, master, ACU_simulation_test1 ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  quick:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Type check (mypy)
+        run: |
+          python -m mypy --config-file mypy.ini controllers model tests
+      - name: Run quick pytest subset
+        shell: pwsh
+        run: |
+          Set-Location $Env:GITHUB_WORKSPACE
+          .\tools\run_pytest_no_pyc.ps1 `
+            tests/test_protocol_parser.py `
+            tests/test_communication_controller.py `
+            tests/test_parse_controller.py `
+            tests/test_parse_controller_extra.py `
+            tests/test_frame_builder.py `
+            tests/test_frame_builder_extra.py `
+            tests/test_ui_integration.py
