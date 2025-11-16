@@ -17,7 +17,7 @@ from pathlib import Path
 try:
     import psutil
 except ImportError:  # pragma: no cover - optional dependency when running local tests
-    psutil = None  # type: ignore[assignment]
+    psutil = None
 
 from setup_qt_environment import setup_qt_environment
 

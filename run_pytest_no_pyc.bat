@@ -1,5 +1,7 @@
 @echo off
 set PYTHONDONTWRITEBYTECODE=1
+:: Disable pytest plugin autoload to avoid plugin cache write issues
+set PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
 :: Ensure project root is on PYTHONPATH so tests can import local modules
 set PYTHONPATH=%~dp0
 if "%~1"=="" (
