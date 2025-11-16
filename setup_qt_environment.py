@@ -1,5 +1,6 @@
 import sys
 import os
+import logging
 from pathlib import Path
 
 
@@ -12,7 +13,7 @@ def setup_qt_environment():
     if hasattr(sys, "_MEIPASS"):
         # Running inside a packaged executable (PyInstaller)
         base_path = sys._MEIPASS
-        print(f"Packaged env - MEIPASS: {base_path}")
+        logging.getLogger(__name__).info("Packaged env - MEIPASS: %s", base_path)
 
         # Configure plugin paths for the packaged layout
         plugin_path = os.path.join(base_path, "PySide6", "plugins")
@@ -22,16 +23,20 @@ def setup_qt_environment():
         os.environ["QT_PLUGIN_PATH"] = plugin_path
         os.environ["QML2_IMPORT_PATH"] = os.path.join(base_path, "PySide6", "qml")
 
-        print(f"Configured plugin path: {plugin_path}")
+        logging.getLogger(__name__).info("Configured plugin path: %s", plugin_path)
 
         # Check whether the platform plugins exist
         platforms_path = os.path.join(plugin_path, "platforms")
         if os.path.exists(platforms_path):
-            print(f"Found platform plugin dir: {platforms_path}")
+            logging.getLogger(__name__).info(
+                "Found platform plugin dir: %s", platforms_path
+            )
             plugins = os.listdir(platforms_path)
-            print(f"Platform plugins: {plugins}")
+            logging.getLogger(__name__).debug("Platform plugins: %s", plugins)
         else:
-            print(f"Warning: platform plugin dir missing: {platforms_path}")
+            logging.getLogger(__name__).warning(
+                "Platform plugin dir missing: %s", platforms_path
+            )
 
     else:
         # Running in a development environment
@@ -44,21 +49,23 @@ def setup_qt_environment():
             if plugin_path.exists():
                 os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(plugin_path)
                 os.environ["QT_PLUGIN_PATH"] = str(plugin_path)
-                print(f"Dev env - Qt plugin path: {plugin_path}")
+                logging.getLogger(__name__).info(
+                    "Dev env - Qt plugin path: %s", plugin_path
+                )
             else:
-                print("Warning: Qt plugin path not found")
+                logging.getLogger(__name__).warning("Qt plugin path not found")
 
         except ImportError as e:
-            print(f"Unable to import PySide6: {e}")
+            logging.getLogger(__name__).error("Unable to import PySide6: %s", e)
             sys.exit(1)
 
 
 # Call before importing any PySide6 modules
 setup_qt_environment()
 
-# Debug info
-print("=== Qt environment configured ===")
+logger = logging.getLogger(__name__)
+logger.debug("=== Qt environment configured ===")
 qt_platform_path = os.environ.get("QT_QPA_PLATFORM_PLUGIN_PATH", "unset")
-print(f"QT_QPA_PLATFORM_PLUGIN_PATH: {qt_platform_path}")
+logger.debug("QT_QPA_PLATFORM_PLUGIN_PATH: %s", qt_platform_path)
 qt_plugin_path = os.environ.get("QT_PLUGIN_PATH", "unset")
-print(f"QT_PLUGIN_PATH: {qt_plugin_path}")
+logger.debug("QT_PLUGIN_PATH: %s", qt_plugin_path)
