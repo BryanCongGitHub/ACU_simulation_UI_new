@@ -28,9 +28,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          # Ensure runtime/test dependencies needed by the repo are present
+          pip install --upgrade psutil pytest pytest-qt
+          # Try to install PySide6 for GUI-related tests; it's optional on some runners
+          python -c "import importlib, sys
+    try:
+      importlib.import_module('PySide6')
+      print('PySide6 already available')
+    except Exception:
+      try:
+        import subprocess
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'PySide6'])
+      except Exception:
+        print('PySide6 install failed, continuing (may be fine for non-GUI jobs)')
+    "
 
       - name: Show PYTHONPATH
         run: echo "PYTHONPATH=$PYTHONPATH"
+
+      - name: Verify psutil import
+        run: |
+          python -c "import psutil; print('psutil', psutil.__version__)"
 
       - name: Run pre-commit hooks
         run: |
