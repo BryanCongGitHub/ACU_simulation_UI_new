@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import sys
+import os
 
 # removed unused imports (struct, threading)
 import time
@@ -21,8 +22,10 @@ except ImportError:  # pragma: no cover - optional dependency when running local
 
 from setup_qt_environment import setup_qt_environment
 
-# Ensure Qt environment is configured before importing PySide6
-setup_qt_environment()
+# Allow skipping Qt env setup on import via environment variable
+if os.environ.get("ACU_SKIP_QT_ENV_ON_IMPORT", "0") != "1":
+    # Ensure Qt environment is configured before importing PySide6
+    setup_qt_environment()
 
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
@@ -94,35 +97,54 @@ try:
 except Exception:
     pass
 
+
+def configure_logging(
+    log_path: Path,
+) -> tuple[logging.Logger, RotatingFileHandler | None]:
+    """Configure application logging in a centralized, idempotent way."""
+    app_logger = logging.getLogger("ACUSim")
+    file_h: RotatingFileHandler | None = None
+    if not app_logger.handlers:
+        app_logger.setLevel(logging.INFO)
+        file_h = RotatingFileHandler(
+            str(log_path), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+        file_h.setFormatter(formatter)
+        app_logger.addHandler(file_h)
+
+        console = logging.StreamHandler()
+        console.setLevel(logging.WARNING)
+        console.setFormatter(formatter)
+        app_logger.addHandler(console)
+
+        if file_h is not None:
+            _data_buffer_logger = logging.getLogger("DataBuffer")
+            _data_buffer_logger.setLevel(logging.INFO)
+            _data_buffer_logger.addHandler(file_h)
+
+            _waveform_logger = logging.getLogger("WaveformController")
+            _waveform_logger.setLevel(logging.INFO)
+            _waveform_logger.addHandler(file_h)
+    return app_logger, file_h
+
+
+# Module-level logger references; can be initialized at import based on env var
 logger = logging.getLogger("ACUSim")
 file_handler: RotatingFileHandler | None = None
-if not logger.handlers:
-    logger.setLevel(logging.INFO)
-    file_handler = RotatingFileHandler(
-        str(LOG_PATH), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
-    )
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+if os.environ.get("ACU_INIT_LOGGING_ON_IMPORT", "1") == "1":
+    logger, file_handler = configure_logging(LOG_PATH)
 
-    console = logging.StreamHandler()
-    console.setLevel(logging.WARNING)
-    console.setFormatter(formatter)
-    logger.addHandler(console)
-else:
-    for handler in logger.handlers:
-        if isinstance(handler, RotatingFileHandler):
-            file_handler = handler
-            break
 
-if file_handler:
-    _data_buffer_logger = logging.getLogger("DataBuffer")
-    _data_buffer_logger.setLevel(logging.INFO)
-    _data_buffer_logger.addHandler(file_handler)
+def initialize_app_environment() -> None:
+    """Initialize environment and logging for application entry points.
 
-    _waveform_logger = logging.getLogger("WaveformController")
-    _waveform_logger.setLevel(logging.INFO)
-    _waveform_logger.addHandler(file_handler)
+    Safe to call multiple times (idempotent).
+    """
+    setup_qt_environment()
+    global logger, file_handler
+    logger, file_handler = configure_logging(LOG_PATH)
+
 
 ParseTask = Tuple[bytes, str, int, str]
 RecordDict = Dict[str, Any]
@@ -1927,6 +1949,8 @@ INV设备端口分配:
 
 
 if __name__ == "__main__":
+    # Initialize environment and logging only for the executable entry point
+    initialize_app_environment()
     app = QApplication(sys.argv)
 
     # 设置应用程序属性
