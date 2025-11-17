@@ -91,18 +91,18 @@ class WaveformDisplay(QWidget):
         layout.addWidget(toolbar)
 
         # 分割区域
-        splitter = QSplitter(Qt.Horizontal)
+        self.splitter = QSplitter(Qt.Horizontal)
 
         # 左侧信号选择树
         self.signal_tree = self.create_signal_tree()
-        splitter.addWidget(self.signal_tree)
+        self.splitter.addWidget(self.signal_tree)
 
         # 右侧波形显示区域
         self.waveform_widget = WaveformPlotWidget(self.controller)
-        splitter.addWidget(self.waveform_widget)
+        self.splitter.addWidget(self.waveform_widget)
 
-        splitter.setSizes([350, 650])
-        layout.addWidget(splitter)
+        self.splitter.setSizes([350, 650])
+        layout.addWidget(self.splitter)
 
     def create_toolbar(self):
         toolbar = QWidget()
@@ -388,6 +388,27 @@ class WaveformDisplay(QWidget):
             settings.setValue(
                 "last_export_path", getattr(self, "_last_export_path", "")
             )
+            # signal order: save checked items in tree order so plots can be
+            # restored in the same order
+            try:
+                order = []
+                for i in range(self.signal_tree.topLevelItemCount()):
+                    cat = self.signal_tree.topLevelItem(i)
+                    for j in range(cat.childCount()):
+                        item = cat.child(j)
+                        if item.checkState(0) == Qt.Checked:
+                            sid = item.data(0, Qt.UserRole)
+                            if sid:
+                                order.append(str(sid))
+                settings.setValue("signal_order", order)
+            except Exception:
+                pass
+            # splitter sizes
+            try:
+                if getattr(self, "splitter", None) is not None:
+                    settings.setValue("splitter_sizes", self.splitter.sizes())
+            except Exception:
+                pass
             settings.endGroup()
             settings.sync()
         except Exception:
@@ -404,6 +425,8 @@ class WaveformDisplay(QWidget):
             )
             auto_range = settings.value("auto_range", True)
             last_export = settings.value("last_export_path", "") or ""
+            signal_order = settings.value("signal_order", []) or []
+            splitter_sizes = settings.value("splitter_sizes", None)
             settings.endGroup()
 
             # apply time range and auto range
@@ -420,6 +443,17 @@ class WaveformDisplay(QWidget):
             # remember last export
             self._last_export_path = last_export
 
+            # restore splitter sizes
+            try:
+                if splitter_sizes and getattr(self, "splitter", None) is not None:
+                    try:
+                        sizes = [int(x) for x in splitter_sizes]
+                    except Exception:
+                        sizes = splitter_sizes
+                    self.splitter.setSizes(sizes)
+            except Exception:
+                pass
+
             # apply selected signals: find items in tree and check them
             if sel:
                 # build a lookup of signal_id -> QTreeWidgetItem
@@ -432,7 +466,11 @@ class WaveformDisplay(QWidget):
                         if sid:
                             lookup[str(sid)] = item
 
-                for sid in sel:
+                # If saved order exists, apply it first so plots are added in
+                # the saved order; otherwise, fall back to sel order.
+                apply_order = signal_order if signal_order else sel
+
+                for sid in apply_order:
                     item = lookup.get(str(sid))
                     if item is not None:
                         # set checked state without triggering selection logic twice
@@ -441,6 +479,7 @@ class WaveformDisplay(QWidget):
                         item.blockSignals(block)
                         try:
                             self.controller.select_signal(sid)
+                            # add plot in the same order
                             self.waveform_widget.add_signal_plot(
                                 sid, self.controller.signal_manager.get_signal_info(sid)
                             )

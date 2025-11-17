@@ -336,6 +336,13 @@ class ACUSimulator(QMainWindow):
         self.status_label = QLabel("Ready")
         layout.addWidget(self.status_label)
 
+        # Waveform display (migrated UI)
+        try:
+            if getattr(self, "waveform_display", None) is not None:
+                layout.addWidget(self.waveform_display)
+        except Exception:
+            pass
+
         # Menu bar (basic File/Help) - part of migration from original UI
         try:
             menubar = self.menuBar()
