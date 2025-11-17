@@ -99,3 +99,30 @@ Developer notes / how this was tested
 If you'd like, I can also add a short QA checklist for the PR (manual steps to
 verify color save/load, legend visibility toggles, and CSV export) and a small
 UI test that exercises the color-change flow.
+ 
+Palette JSON format example
+---------------------------
+
+The palette JSON is a simple mapping of signal id -> hex color string. Example:
+
+```json
+{
+  "1": "#FF0000",
+  "2": "#00FF00",
+  "temperature": "#3366FF"
+}
+```
+
+PR QA checklist
+----------------
+
+- Open the waveform view. Select a few signals from the tree.
+- Verify the compact legend shows one line per selected signal with a checkbox and color swatch.
+- Click a swatch, pick a new color, and confirm the curve color updates immediately.
+- Toggle the checkbox to hide/show the curve.
+- Click `保存配色`, then `导出配色` and confirm a JSON file is written.
+- Click `导入配色` with the exported file and confirm colors are applied.
+- Export CSV for selected signals and confirm header uses signal display names.
+- Click `预览缩略图` and confirm a thumbnail appears in the toolbar.
+
+Add these steps to the PR description so reviewers can quickly validate the UX.
