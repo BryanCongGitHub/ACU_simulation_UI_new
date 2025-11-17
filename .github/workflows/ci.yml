@@ -34,13 +34,18 @@ jobs:
           pip install --upgrade black flake8 pre-commit
 
       - name: Lint diagnostics (versions + freeze)
+        if: ${{ always() }}
         shell: bash
         run: |
-          python -m black --version
-          python -m flake8 --version
-          python -m pip freeze | tee pip_freeze.txt
+          echo "--- black version ---"
+          python -m black --version || true
+          echo "--- flake8 version ---"
+          python -m flake8 --version || true
+          echo "--- pip freeze ---"
+          python -m pip freeze | tee pip_freeze.txt || true
 
       - name: Upload lint env artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: lint-env
