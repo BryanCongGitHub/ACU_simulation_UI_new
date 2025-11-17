@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QSettings
+import json
 from waveform_controller import WaveformController
 from waveform_plot import WaveformPlotWidget
 import logging
@@ -61,26 +62,6 @@ class WaveformDisplay(QWidget):
             event_bus.waveform_receive.connect(self._on_bus_waveform_receive)
             event_bus.recording_toggle.connect(self._on_bus_recording_toggle)
 
-    def _on_bus_waveform_send(self, data_buffer, timestamp):
-        self.controller.add_send_data(data_buffer, timestamp)
-
-    def _on_bus_waveform_receive(self, parsed_data, device_type, timestamp):
-        self.controller.add_receive_data(parsed_data, device_type, timestamp)
-
-    def _on_bus_recording_toggle(self, should_record):
-        block = self.record_btn.blockSignals(True)
-        self.record_btn.setChecked(should_record)
-        self.record_btn.blockSignals(block)
-        if should_record:
-            self.controller.start_recording()
-            self.record_btn.setText("停止记录")
-            self.pause_btn.setEnabled(True)
-        else:
-            self.controller.stop_recording()
-            self.record_btn.setText("开始记录")
-            self.pause_btn.setChecked(False)
-            self.pause_btn.setEnabled(False)
-
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -103,6 +84,40 @@ class WaveformDisplay(QWidget):
 
         self.splitter.setSizes([350, 650])
         layout.addWidget(self.splitter)
+
+        # interactive legend area below the plot for quick show/hide
+        from PySide6.QtWidgets import QScrollArea, QWidget
+
+        self.legend_area = QScrollArea()
+        self.legend_area.setWidgetResizable(True)
+        legend_container = QWidget()
+        self._legend_layout = QVBoxLayout(legend_container)
+        self._legend_layout.setContentsMargins(2, 2, 2, 2)
+        self._legend_layout.setSpacing(4)
+        self.legend_area.setWidget(legend_container)
+        self.legend_area.setMaximumHeight(120)
+        layout.addWidget(self.legend_area)
+
+    def _on_bus_waveform_send(self, data_buffer, timestamp):
+        self.controller.add_send_data(data_buffer, timestamp)
+
+    def _on_bus_waveform_receive(self, parsed_data, device_type, timestamp):
+        self.controller.add_receive_data(parsed_data, device_type, timestamp)
+
+    def _on_bus_recording_toggle(self, should_record):
+        block = self.record_btn.blockSignals(True)
+        self.record_btn.setChecked(should_record)
+        self.record_btn.blockSignals(block)
+        if should_record:
+            self.controller.start_recording()
+            self.record_btn.setText("停止记录")
+            self.pause_btn.setEnabled(True)
+        else:
+            self.controller.stop_recording()
+            self.record_btn.setText("开始记录")
+            self.pause_btn.setChecked(False)
+            self.pause_btn.setEnabled(False)
+        # legend area already managed in init_ui
 
     def create_toolbar(self):
         toolbar = QWidget()
@@ -165,6 +180,13 @@ class WaveformDisplay(QWidget):
         layout.addWidget(self.theme_combo)
         layout.addWidget(self.legend_check)
         layout.addWidget(self.grid_btn)
+        # palette save/load
+        self.save_palette_btn = QPushButton("保存配色")
+        self.save_palette_btn.setToolTip("保存当前信号颜色映射到设置")
+        self.load_palette_btn = QPushButton("加载配色")
+        self.load_palette_btn.setToolTip("从设置中加载信号颜色映射")
+        layout.addWidget(self.save_palette_btn)
+        layout.addWidget(self.load_palette_btn)
 
         return toolbar
 
@@ -222,6 +244,12 @@ class WaveformDisplay(QWidget):
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
         self.legend_check.toggled.connect(self._on_legend_toggled)
         self.grid_btn.clicked.connect(self._on_grid_toggled)
+        # palette handlers
+        try:
+            self.save_palette_btn.clicked.connect(self._on_save_palette)
+            self.load_palette_btn.clicked.connect(self._on_load_palette)
+        except Exception:
+            pass
 
     def on_record_toggled(self, checked):
         """记录按钮切换"""
@@ -369,6 +397,11 @@ class WaveformDisplay(QWidget):
                 item.setText(2, value_str)
 
             logger.info(f"选择信号: {signal_info['name']}, 类型: {signal_info['type']}")
+            # update interactive legend
+            try:
+                self._rebuild_legend()
+            except Exception:
+                pass
 
         else:
             # 取消选中
@@ -377,6 +410,10 @@ class WaveformDisplay(QWidget):
             item.setText(1, "○")
             item.setText(2, "--")
             logger.info(f"取消选择信号: {signal_info['name']}")
+            try:
+                self._rebuild_legend()
+            except Exception:
+                pass
 
     def _on_signal_context_menu(self, pos):
         """Context menu for signal tree to allow color editing, etc."""
@@ -411,6 +448,11 @@ class WaveformDisplay(QWidget):
             # update waveform plot color
             try:
                 self.waveform_widget.set_curve_color(sid, hexc)
+                # update legend visuals
+                try:
+                    self._rebuild_legend()
+                except Exception:
+                    pass
             except Exception:
                 pass
         except Exception:
@@ -431,6 +473,162 @@ class WaveformDisplay(QWidget):
             self.waveform_widget.show_legend(visible)
         except Exception:
             pass
+
+    def _rebuild_legend(self):
+        """Rebuild the small interactive legend area below the plot.
+
+        Each entry contains a visibility checkbox, a color swatch button and a label.
+        """
+        try:
+            # clear existing widgets
+            while self._legend_layout.count():
+                item = self._legend_layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    try:
+                        w.setParent(None)
+                        w.deleteLater()
+                    except Exception:
+                        pass
+
+            # build entries for currently selected signals
+            selected = list(self.controller.get_selected_signals())
+            for sid in selected:
+                info = self.controller.signal_manager.get_signal_info(sid) or {}
+                name = info.get("name") or str(sid)
+
+                entry = QWidget()
+                hl = QHBoxLayout(entry)
+                hl.setContentsMargins(2, 2, 2, 2)
+                hl.setSpacing(6)
+
+                vis = QCheckBox(name)
+                vis.setChecked(True)
+
+                # toggle visibility
+                def _make_toggle(s):
+                    return lambda checked: self.waveform_widget.set_curve_visible(
+                        s, checked
+                    )
+
+                vis.toggled.connect(_make_toggle(sid))
+
+                color_btn = QPushButton()
+                color_btn.setFixedSize(18, 14)
+                # determine current color from waveform_widget if available
+                cur_color = None
+                try:
+                    curves = getattr(self.waveform_widget, "curves", {})
+                    if sid in curves:
+                        cur_color = curves[sid].get("color")
+                except Exception:
+                    cur_color = None
+
+                if cur_color:
+                    color_btn.setStyleSheet(
+                        f"background-color: {cur_color}; border: 1px solid #333;"
+                    )
+                else:
+                    color_btn.setStyleSheet(
+                        "background-color: #888; border: 1px solid #333;"
+                    )
+
+                def _make_color_click(s, btn):
+                    return lambda: self._on_legend_color_clicked(s, btn)
+
+                color_btn.clicked.connect(_make_color_click(sid, color_btn))
+
+                hl.addWidget(vis)
+                hl.addWidget(color_btn)
+                hl.addStretch()
+
+                self._legend_layout.addWidget(entry)
+
+        except Exception:
+            logger.exception("重建交互式图例失败")
+
+    def _on_legend_color_clicked(self, sid, btn):
+        try:
+            from PySide6.QtWidgets import QColorDialog
+
+            color = QColorDialog.getColor()
+            if not color.isValid():
+                return
+            hexc = color.name()
+            try:
+                self.waveform_widget.set_curve_color(sid, hexc)
+            except Exception:
+                pass
+            try:
+                btn.setStyleSheet(f"background-color: {hexc}; border: 1px solid #333;")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_save_palette(self):
+        """Save current signal color mapping to QSettings.
+
+        Stored under the `WaveformDisplay/palette` key as JSON.
+        """
+        try:
+            curves = getattr(self.waveform_widget, "curves", {})
+            mapping = {}
+            for sid, info in curves.items():
+                # ensure keys are strings for storage
+                try:
+                    mapping[str(sid)] = info.get("color") or "#000000"
+                except Exception:
+                    mapping[str(sid)] = "#000000"
+
+            settings = QSettings()
+            settings.beginGroup("WaveformDisplay")
+            settings.setValue("palette", json.dumps(mapping, ensure_ascii=False))
+            settings.endGroup()
+            settings.sync()
+            QMessageBox.information(self, "配色", "配色已保存")
+        except Exception:
+            logger.exception("保存配色失败")
+            QMessageBox.critical(self, "配色", "保存配色失败")
+
+    def _on_load_palette(self):
+        """Load palette mapping from QSettings and apply colors to existing curves."""
+        try:
+            settings = QSettings()
+            settings.beginGroup("WaveformDisplay")
+            raw = settings.value("palette", "") or ""
+            settings.endGroup()
+            if not raw:
+                QMessageBox.information(self, "配色", "未找到已保存的配色")
+                return
+            try:
+                mapping = json.loads(raw)
+            except Exception:
+                mapping = {}
+
+            # apply mapping to existing curves
+            for k, v in (mapping or {}).items():
+                try:
+                    # try both str and original type
+                    sid = k
+                    self.waveform_widget.set_curve_color(sid, v)
+                except Exception:
+                    try:
+                        # maybe original ids are ints
+                        self.waveform_widget.set_curve_color(int(k), v)
+                    except Exception:
+                        pass
+
+            # rebuild legend to reflect colors
+            try:
+                self._rebuild_legend()
+            except Exception:
+                pass
+
+            QMessageBox.information(self, "配色", "配色已加载并应用")
+        except Exception:
+            logger.exception("加载配色失败")
+            QMessageBox.critical(self, "配色", "加载配色失败")
 
     def _on_grid_toggled(self):
         try:
@@ -614,6 +812,12 @@ class WaveformDisplay(QWidget):
                             )
                         except Exception:
                             pass
+
+            # try to restore saved palette/colors if any
+            try:
+                self._on_load_palette()
+            except Exception:
+                pass
 
         except Exception:
             logger.exception("加载 WaveformDisplay 设置失败")

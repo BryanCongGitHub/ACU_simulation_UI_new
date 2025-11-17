@@ -177,6 +177,35 @@ class WaveformPlotWidget(QWidget):
         except Exception:
             pass
 
+    def set_curve_visible(self, signal_id, visible: bool):
+        """Set visibility of a specific curve without removing it."""
+        try:
+            if signal_id not in self.curves:
+                return
+            curve_info = self.curves[signal_id]
+            curve = curve_info.get("curve")
+            if curve is not None:
+                try:
+                    curve.setVisible(bool(visible))
+                except Exception:
+                    # fallback: remove or re-add as needed
+                    if not visible:
+                        try:
+                            self.main_plot.removeItem(curve)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            new_curve = pg.PlotDataItem(
+                                pen=curve_info.get("pen"), name=curve.name()
+                            )
+                            self.main_plot.addItem(new_curve)
+                            curve_info["curve"] = new_curve
+                        except Exception:
+                            pass
+        except Exception:
+            logger.exception("设置曲线可见性失败")
+
     def remove_signal_plot(self, signal_id):
         """移除信号绘图"""
         if signal_id in self.curves:

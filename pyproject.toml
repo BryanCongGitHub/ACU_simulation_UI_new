@@ -3,7 +3,6 @@ line-length = 88
 target-version = ['py311']
 
 [tool.pytest.ini_options]
-# Explicitly load pytest-qt so qtbot fixture is available even when
-# PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 is set in CI or local runners.
-addopts = "-p pytestqt.plugin"
+# Do not force-load pytest-qt via -p; let pytest auto-discover plugins to avoid
+# duplicate registration errors when plugin autoload is enabled.
 testpaths = ["tests"]
