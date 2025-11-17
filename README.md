@@ -126,6 +126,56 @@ python tools/clean_artifacts.py --dry-run # 查看将被清理的路径
 
 ## 项目文件架构（当前工作副本）
 
+## Developer Notes (开发者说明)
+
+下面是开发者在本地运行、调试和在 CI 上稳定执行测试时常用的说明：
+
+PYTEST_DISABLE_PLUGIN_AUTOLOAD
+-----------------------------
+在某些环境（尤其是 CI 中或 Windows 的系统安装目录）上，pytest 插件会尝试在 site-packages 下写入插件缓存，这可能因没有写权限而导致挂起或失败。为避免这种间歇性问题，推荐在运行测试时禁用插件自动加载：
+
+- PowerShell:
+
+  ```powershell
+  $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
+  ```
+
+- Bash:
+
+  ```bash
+  export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  ```
+
+仓库已提供便捷脚本（会自动设置上面的环境变量）：
+
+- `tools/run_pytest_no_pyc.ps1` — PowerShell 运行器（已设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` 与 `PYTHONDONTWRITEBYTECODE=1`）。
+- `run_pytest_no_pyc.bat` — Windows 批处理运行器（已设置 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` 与 `PYTHONDONTWRITEBYTECODE=1`）。
+
+示例（PowerShell）：
+
+```powershell
+cd "E:\Codes\py\py_vscode\ACU_simulation_UI"
+.\tools\run_pytest_no_pyc.ps1            # 默认运行少量关键测试
+.\tools\run_pytest_no_pyc.ps1 tests     # 传入参数运行所有 tests
+```
+
+Logging (日志)
+---------------
+为便于在 CI 或本地控制输出，库中原有的顶层 `print()` 调试信息已替换为 `logging` 调用。日志由 `ACUSim` 根 logger 管理，并在应用入口通过 `configure_logging()` 初始化。测试或特殊场景下可以通过环境变量控制是否在导入时自动初始化日志（详见代码注释）：
+
+- 跳过导入时的 Qt 环境设置：`ACU_SKIP_QT_ENV_ON_IMPORT=1`
+- 跳过导入时的日志初始化：`ACU_INIT_LOGGING_ON_IMPORT=0`
+
+如果希望在非主入口脚本中显式初始化环境与日志，可调用：
+
+```python
+from ACU_simulation import initialize_app_environment
+initialize_app_environment()
+```
+
+以上设置与脚本已在 `requirements-dev.txt` 中列出必要的开发依赖（如 `pytest`, `pytest-qt`, `PySide6` 等），用于本地测试与 CI 验证。
+
+
 项目根目录概览：
 
 - `ACU_simulation.py` : 主窗口，实现了 UI 与控制层的组装（现支持依赖注入）。
