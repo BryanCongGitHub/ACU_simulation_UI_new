@@ -15,9 +15,11 @@ def qapp():
 
 
 def test_save_and_load_settings(tmp_path, qapp):
-    """Save and load should persist splitter sizes and signal order."""
-    # Force QSettings to use IniFormat in the temporary dir so we don't
-    # pollute the user's settings.
+    """Verify save_settings/load_settings persist splitter sizes
+    and the signal display order.
+    """
+    # Force QSettings to use IniFormat in the temporary directory so we
+    # do not affect user settings.
     QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path))
 
     # Create the widget and set some state
