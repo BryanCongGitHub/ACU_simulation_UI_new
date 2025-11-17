@@ -1,5 +1,9 @@
 # ACU Simulation UI 重构说明
 
+![CI](https://github.com/BryanCongGitHub/ACU_simulation_UI_new/actions/workflows/ci.yml/badge.svg)
+
+开发者文档：请参阅 `README_DEV.md` 获取开发者运行/测试指引与脚本说明。
+
 本项目已开始从单文件/紧耦合结构重构为 MVC + 可插拔协议 架构，目标：
 
 - 易维护：清晰的 Model / Controller / View 分层，逻辑职责单一。
