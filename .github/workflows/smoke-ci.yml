@@ -1,8 +1,8 @@
-name: Smoke CI
+name: Smoke CI (disabled)
 
+# Disabled: keep for reference; only manual dispatch allowed
 on:
-  push:
-  pull_request:
+  workflow_dispatch: {}
 
 jobs:
   smoke-tests:

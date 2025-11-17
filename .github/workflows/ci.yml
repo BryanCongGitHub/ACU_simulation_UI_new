@@ -53,19 +53,36 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
       QT_QPA_PLATFORM: offscreen
-      PYTEST_ADDOPTS: "-q -n 0 --maxfail=1 --timeout=180 -ra"
+      PYTEST_ADDOPTS: "-q -n 0 --maxfail=1 --timeout=180 --timeout-method=thread -ra"
+      PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install system libraries (Qt runtime)
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libegl1 \
             libgl1 \
+            libxrender1 \
+            libsm6 \
+            libxext6 \
+            libglib2.0-0 \
             libxcb-xinerama0 \
             libxkbcommon-x11-0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcomposite1 \
+            libxcursor1 \
+            libxdamage1 \
+            libxi6 \
+            libxtst6 \
+            libnss3 \
+            libxrandr2 \
+            libasound2 \
             libfontconfig1 \
             libdbus-1-3 \
             mesa-utils \
@@ -91,13 +108,15 @@ jobs:
           done
 
       - name: Verify imports
+        shell: bash
         run: |
           python -c "import psutil; print('psutil', psutil.__version__)"
           python -c "import pytest, pytestqt, PySide6; print('pytest-qt OK', pytest.__version__)"
+          python -c "from PySide6.QtCore import QLibraryInfo; print('Qt plugins path:', QLibraryInfo.location(QLibraryInfo.PluginsPath))"
 
-      - name: Run pytest (full suite)
-        run: |
-          python -m pytest
+      - name: Run pytest (full suite under xvfb)
+        shell: bash
+        run: xvfb-run -a python -m pytest
 
   ui-tests:
     name: Targeted UI tests
@@ -110,19 +129,36 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
       QT_QPA_PLATFORM: offscreen
-      PYTEST_ADDOPTS: "-q -n 0 --maxfail=1 --timeout=150 -ra"
+      PYTEST_ADDOPTS: "-q -n 0 --maxfail=1 --timeout=150 --timeout-method=thread -ra"
+      PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install system libraries (Qt runtime)
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libegl1 \
             libgl1 \
+            libxrender1 \
+            libsm6 \
+            libxext6 \
+            libglib2.0-0 \
             libxcb-xinerama0 \
             libxkbcommon-x11-0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcomposite1 \
+            libxcursor1 \
+            libxdamage1 \
+            libxi6 \
+            libxtst6 \
+            libnss3 \
+            libxrandr2 \
+            libasound2 \
             libfontconfig1 \
             libdbus-1-3 \
             mesa-utils \
@@ -146,9 +182,9 @@ jobs:
             done
           done
 
-      - name: Run targeted UI tests and capture output
-        run: |
-          pytest tests/test_palette_save_load_pytestqt.py tests/test_legend_interaction_pytestqt.py | tee ui_tests_output.txt
+      - name: Run targeted UI tests and capture output (xvfb)
+        shell: bash
+        run: xvfb-run -a pytest tests/test_palette_save_load_pytestqt.py tests/test_legend_interaction_pytestqt.py | tee ui_tests_output.txt
 
       - name: Upload UI test output artifact
         uses: actions/upload-artifact@v4
