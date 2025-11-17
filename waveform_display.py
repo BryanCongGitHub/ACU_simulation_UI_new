@@ -113,13 +113,25 @@ class WaveformDisplay(QWidget):
         self.record_btn = QPushButton("开始记录")
         self.record_btn.setCheckable(True)
         self.record_btn.setMinimumHeight(30)
+        self.record_btn.setToolTip("开始或停止数据记录")
         self.pause_btn = QPushButton("暂停")
         self.pause_btn.setCheckable(True)
         self.pause_btn.setMinimumHeight(30)
+        self.pause_btn.setToolTip("暂停/继续记录，不会清空已记录数据")
         self.clear_btn = QPushButton("清空波形")
         self.clear_btn.setMinimumHeight(30)
+        self.clear_btn.setToolTip("清除当前所有显示的波形和缓存")
         self.export_btn = QPushButton("导出数据")
         self.export_btn.setMinimumHeight(30)
+        self.export_btn.setToolTip("导出当前选中信号的历史数据为 CSV 或 JSON")
+
+        # thumbnail preview button + label
+        self.thumb_btn = QPushButton("预览缩略图")
+        self.thumb_btn.setMinimumHeight(30)
+        self.thumb_btn.setToolTip("生成当前波形的缩略图并在工具栏显示")
+        self.thumb_label = QLabel("")
+        self.thumb_label.setFixedSize(160, 80)
+        self.thumb_label.setVisible(False)
 
         self.time_range_combo = QComboBox()
         self.time_range_combo.addItems(["1分钟", "5分钟", "10分钟", "30分钟", "1小时"])
@@ -134,6 +146,8 @@ class WaveformDisplay(QWidget):
         layout.addWidget(self.pause_btn)
         layout.addWidget(self.clear_btn)
         layout.addWidget(self.export_btn)
+        layout.addWidget(self.thumb_btn)
+        layout.addWidget(self.thumb_label)
         layout.addStretch()
         layout.addWidget(QLabel("时间范围:"))
         layout.addWidget(self.time_range_combo)
@@ -162,6 +176,15 @@ class WaveformDisplay(QWidget):
                 )
                 signal_item.setData(0, Qt.UserRole, signal_id)
                 signal_item.setCheckState(0, Qt.Unchecked)
+                # tooltip shows id and type for clarity
+                try:
+                    tip = (
+                        f"{signal_info['name']} (id={signal_id}, "
+                        f"type={signal_info['type']})"
+                    )
+                    signal_item.setToolTip(0, tip)
+                except Exception:
+                    pass
 
         return tree
 
@@ -171,6 +194,7 @@ class WaveformDisplay(QWidget):
         self.pause_btn.toggled.connect(self.on_pause_toggled)
         self.clear_btn.clicked.connect(self.on_clear_clicked)
         self.export_btn.clicked.connect(self.on_export_clicked)
+        self.thumb_btn.clicked.connect(self._on_thumb_clicked)
         self.time_range_combo.currentTextChanged.connect(self.on_time_range_changed)
         self.auto_range_check.toggled.connect(self.on_auto_range_toggled)
         self.signal_tree.itemChanged.connect(self.on_signal_selection_changed)
@@ -232,19 +256,30 @@ class WaveformDisplay(QWidget):
             timestamps = self.controller.get_timestamps()
 
             # 组织数据为行格式（时间戳为第一列）
+            # 使用信号显示名作为 CSV header，便于阅读
+            display_names = []
+            sig_to_name = {}
+            for sig in selected:
+                info = self.controller.signal_manager.get_signal_info(sig) or {}
+                name = info.get("name") or str(sig)
+                display_names.append(name)
+                sig_to_name[sig] = name
+
             rows = []
             for i, ts in enumerate(timestamps):
                 row = {"timestamp": ts}
                 for sig in selected:
                     vals = self.controller.get_signal_data(sig)
-                    row[sig] = vals[i] if i < len(vals) else None
+                    row[sig_to_name[sig]] = vals[i] if i < len(vals) else None
                 rows.append(row)
 
             if fmt == "csv":
                 import csv
 
+                fieldnames = ["timestamp"] + display_names
+
                 with open(path, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=["timestamp"] + selected)
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     for r in rows:
                         writer.writerow(r)
@@ -488,3 +523,35 @@ class WaveformDisplay(QWidget):
 
         except Exception:
             logger.exception("加载 WaveformDisplay 设置失败")
+
+    def _on_thumb_clicked(self):
+        """Generate a small thumbnail snapshot of the current plot."""
+        try:
+            if getattr(self, "graphics_view", None) is None:
+                # fallback to waveform_widget's graphics if available
+                gv = getattr(self.waveform_widget, "graphics_view", None)
+            else:
+                gv = self.graphics_view
+
+            if gv is None:
+                return
+
+            # grab returns a QPixmap
+            try:
+                pix = gv.grab()
+            except Exception:
+                # some versions may require grabWidget
+                try:
+                    pix = gv.grabWidget()
+                except Exception:
+                    pix = None
+
+            if pix is None:
+                return
+
+            # scale to thumbnail size while keeping aspect
+            thumb = pix.scaled(self.thumb_label.size(), Qt.KeepAspectRatio)
+            self.thumb_label.setPixmap(thumb)
+            self.thumb_label.setVisible(True)
+        except Exception:
+            pass
