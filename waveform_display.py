@@ -152,6 +152,19 @@ class WaveformDisplay(QWidget):
         layout.addWidget(QLabel("时间范围:"))
         layout.addWidget(self.time_range_combo)
         layout.addWidget(self.auto_range_check)
+        # theme and legend/grid controls
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Light", "Dark"])
+        self.theme_combo.setCurrentText("Light")
+        self.theme_combo.setToolTip("切换绘图主题（明亮/暗色）")
+        self.legend_check = QCheckBox("显示图例")
+        self.legend_check.setChecked(True)
+        self.legend_check.setToolTip("切换图例显示")
+        self.grid_btn = QPushButton("切换网格")
+        self.grid_btn.setToolTip("显示/隐藏网格")
+        layout.addWidget(self.theme_combo)
+        layout.addWidget(self.legend_check)
+        layout.addWidget(self.grid_btn)
 
         return toolbar
 
@@ -201,6 +214,14 @@ class WaveformDisplay(QWidget):
 
         # 改为统一更新
         self.controller.data_updated.connect(self.on_data_updated)
+        # additional UX handlers
+        self.signal_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.signal_tree.customContextMenuRequested.connect(
+            self._on_signal_context_menu
+        )
+        self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
+        self.legend_check.toggled.connect(self._on_legend_toggled)
+        self.grid_btn.clicked.connect(self._on_grid_toggled)
 
     def on_record_toggled(self, checked):
         """记录按钮切换"""
@@ -356,6 +377,79 @@ class WaveformDisplay(QWidget):
             item.setText(1, "○")
             item.setText(2, "--")
             logger.info(f"取消选择信号: {signal_info['name']}")
+
+    def _on_signal_context_menu(self, pos):
+        """Context menu for signal tree to allow color editing, etc."""
+        try:
+            item = self.signal_tree.itemAt(pos)
+            if item is None:
+                return
+            sid = item.data(0, Qt.UserRole)
+            if not sid:
+                return
+            from PySide6.QtWidgets import QMenu
+
+            menu = QMenu(self)
+            change_color = menu.addAction("更改颜色")
+            action = menu.exec(self.signal_tree.viewport().mapToGlobal(pos))
+            if action == change_color:
+                self._change_signal_color(item)
+        except Exception:
+            pass
+
+    def _change_signal_color(self, item):
+        try:
+            sid = item.data(0, Qt.UserRole)
+            if not sid:
+                return
+            from PySide6.QtWidgets import QColorDialog
+
+            color = QColorDialog.getColor()
+            if not color.isValid():
+                return
+            hexc = color.name()
+            # update waveform plot color
+            try:
+                self.waveform_widget.set_curve_color(sid, hexc)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_theme_changed(self, text):
+        try:
+            theme = "dark" if text == "Dark" else "light"
+            try:
+                self.waveform_widget.set_theme(theme)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_legend_toggled(self, visible):
+        try:
+            self.waveform_widget.show_legend(visible)
+        except Exception:
+            pass
+
+    def _on_grid_toggled(self):
+        try:
+            # toggle grid visibility
+            cur = getattr(self.waveform_widget, "main_plot", None)
+            if cur is None:
+                return
+            # grid visibility can be inferred from showGrid
+            # flip: if currently shown, hide by setting alpha to 0
+            # we simply toggle by calling showGrid with inverse
+            # here we check by trying to call showGrid and keeping state
+            if getattr(self.waveform_widget, "_grid_on", True):
+                self.waveform_widget.main_plot.showGrid(x=False, y=False)
+                self.waveform_widget._grid_on = False
+            else:
+                self.waveform_widget.main_plot.showGrid(x=True, y=True, alpha=0.3)
+                self.waveform_widget._grid_on = True
+        except Exception:
+            pass
 
     def on_data_updated(self):
         """统一数据更新"""

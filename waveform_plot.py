@@ -41,7 +41,8 @@ class WaveformPlotWidget(QWidget):
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
         self.main_plot.setLabel("left", "信号值")
         self.main_plot.setLabel("bottom", "时间", "s")
-        self.main_plot.addLegend(offset=(-10, 10))
+        # keep a reference to legend so we can toggle visibility later
+        self.legend = self.main_plot.addLegend(offset=(-10, 10))
 
         # 设置合理的初始范围
         self.main_plot.setYRange(0, 100)
@@ -98,6 +99,83 @@ class WaveformPlotWidget(QWidget):
         logger.info(
             f"添加信号曲线: {signal_info['name']}, 类型: {signal_info['type']}, 颜色: {color}"
         )
+
+    def set_curve_color(self, signal_id, color_hex: str):
+        """Change the color of an existing curve identified by signal_id.
+
+        color_hex should be a hex string like '#RRGGBB'. This updates the pen
+        and keeps the cosmetic width behavior.
+        """
+        if signal_id not in self.curves:
+            return
+        try:
+            from PySide6.QtGui import QColor, QPen
+
+            curve_info = self.curves[signal_id]
+            pen = QPen(QColor(color_hex))
+            pen.setWidth(0)
+            pen.setCosmetic(True)
+            if curve_info.get("type") == "bool":
+                pen.setStyle(Qt.DashLine)
+            else:
+                pen.setStyle(Qt.SolidLine)
+            curve_info["pen"] = pen
+            curve_info["color"] = color_hex
+            curve = curve_info["curve"]
+            # re-create the PlotDataItem with new pen by updating pen property
+            try:
+                curve.setPen(pen)
+            except Exception:
+                # fallback: remove and re-add
+                try:
+                    self.main_plot.removeItem(curve)
+                    new_curve = pg.PlotDataItem(pen=pen, name=curve.name())
+                    self.main_plot.addItem(new_curve)
+                    curve_info["curve"] = new_curve
+                except Exception:
+                    pass
+        except Exception:
+            logger.exception("设置曲线颜色失败")
+
+    def set_theme(self, theme: str):
+        """Switch plot theme between 'light' and 'dark'."""
+        try:
+            if theme == "dark":
+                pg.setConfigOption("background", "k")
+                pg.setConfigOption("foreground", "w")
+                self.main_plot.showGrid(x=True, y=True, alpha=0.2)
+            else:
+                pg.setConfigOption("background", "w")
+                pg.setConfigOption("foreground", "k")
+                self.main_plot.showGrid(x=True, y=True, alpha=0.3)
+            # apply immediately to the plot area
+            try:
+                self.graphics_view.setBackground(pg.getConfig("background"))
+            except Exception:
+                pass
+        except Exception:
+            logger.exception("切换主题失败")
+
+    def show_legend(self, visible: bool):
+        """Show or hide the legend."""
+        try:
+            if getattr(self, "legend", None) is not None:
+                try:
+                    self.legend.setVisible(visible)
+                except Exception:
+                    # some versions may require removing/adding
+                    if not visible:
+                        try:
+                            self.legend.scene().removeItem(self.legend)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            self.legend = self.main_plot.addLegend(offset=(-10, 10))
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     def remove_signal_plot(self, signal_id):
         """移除信号绘图"""
