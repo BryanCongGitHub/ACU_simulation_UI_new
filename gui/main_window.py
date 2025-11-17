@@ -452,6 +452,19 @@ class ACUSimulator(QMainWindow):
             reset_action = settings_menu.addAction("Settings...")
             reset_action.triggered.connect(self._open_settings_dialog)
 
+            # Palette import/export (also expose under Settings menu)
+            try:
+                import_palette_action = settings_menu.addAction("Import Palette...")
+                import_palette_action.triggered.connect(
+                    lambda: self.waveform_display._on_import_palette()
+                )
+                export_palette_action = settings_menu.addAction("Export Palette...")
+                export_palette_action.triggered.connect(
+                    lambda: self.waveform_display._on_export_palette()
+                )
+            except Exception:
+                pass
+
             help_menu = menubar.addMenu("&Help")
             about_action = help_menu.addAction("&About")
             about_action.triggered.connect(

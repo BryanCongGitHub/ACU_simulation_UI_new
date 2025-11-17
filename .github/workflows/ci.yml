@@ -16,7 +16,11 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
       QT_QPA_PLATFORM: offscreen
-      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      # Note: do not disable pytest plugin autoload globally unless you
+      # explicitly manage plugin loading. Tests rely on pytest-qt providing
+      # the `qtbot` fixture. If you set `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`,
+      # make sure to explicitly load pytest-qt or avoid forcing plugin
+      # registration in `pyproject.toml`.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,6 +59,14 @@ jobs:
         run: |
           python -c "import psutil; print('psutil', psutil.__version__)"
 
+      - name: Verify pytest-qt plugin
+        run: |
+          python -c "import pytest; import pytestqt; print('pytest-qt', pytestqt.__version__)"
+
+      - name: CI note about pytest-qt
+        run: |
+          echo "If CI sets PYTEST_DISABLE_PLUGIN_AUTOLOAD, ensure pytest-qt is explicitly loaded or avoid forcing plugin loading in pyproject.toml."
+
       - name: Lint (black)
         run: |
           black --check .
@@ -70,3 +82,15 @@ jobs:
       - name: Run pytest
         run: |
           python -m pytest -q
+
+      - name: Run targeted UI tests and upload output as artifact
+        run: |
+          set -e
+          # run only the palette + legend UI tests and capture output
+          pytest -q tests/test_palette_save_load_pytestqt.py tests/test_legend_interaction_pytestqt.py | tee ui_tests_output.txt
+        # upload the captured output as an artifact so PR reviewers can download it
+      - name: Upload UI test output artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-tests-output
+          path: ui_tests_output.txt

@@ -185,8 +185,14 @@ class WaveformDisplay(QWidget):
         self.save_palette_btn.setToolTip("保存当前信号颜色映射到设置")
         self.load_palette_btn = QPushButton("加载配色")
         self.load_palette_btn.setToolTip("从设置中加载信号颜色映射")
+        self.export_palette_btn = QPushButton("导出配色")
+        self.export_palette_btn.setToolTip("将当前配色导出为 JSON 文件以便共享或备份")
+        self.import_palette_btn = QPushButton("导入配色")
+        self.import_palette_btn.setToolTip("从 JSON 文件导入配色并应用到当前视图")
         layout.addWidget(self.save_palette_btn)
         layout.addWidget(self.load_palette_btn)
+        layout.addWidget(self.export_palette_btn)
+        layout.addWidget(self.import_palette_btn)
 
         return toolbar
 
@@ -248,6 +254,8 @@ class WaveformDisplay(QWidget):
         try:
             self.save_palette_btn.clicked.connect(self._on_save_palette)
             self.load_palette_btn.clicked.connect(self._on_load_palette)
+            self.export_palette_btn.clicked.connect(self._on_export_palette)
+            self.import_palette_btn.clicked.connect(self._on_import_palette)
         except Exception:
             pass
 
@@ -629,6 +637,63 @@ class WaveformDisplay(QWidget):
         except Exception:
             logger.exception("加载配色失败")
             QMessageBox.critical(self, "配色", "加载配色失败")
+
+    def _on_export_palette(self):
+        """Export current palette mapping to a JSON file chosen by the user."""
+        try:
+            curves = getattr(self.waveform_widget, "curves", {})
+            mapping = {
+                str(sid): info.get("color") or "#000000" for sid, info in curves.items()
+            }
+
+            path, _ = QFileDialog.getSaveFileName(
+                self, "导出配色", "palette.json", "JSON 文件 (*.json)"
+            )
+            if not path:
+                return
+
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(mapping, f, ensure_ascii=False, indent=2)
+
+            QMessageBox.information(self, "配色", f"配色已导出: {path}")
+        except Exception:
+            logger.exception("导出配色失败")
+            QMessageBox.critical(self, "配色", "导出配色失败")
+
+    def _on_import_palette(self):
+        """Import a palette JSON file and apply it to existing curves."""
+        try:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "导入配色", "", "JSON 文件 (*.json)"
+            )
+            if not path:
+                return
+
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    mapping = json.load(f)
+            except Exception:
+                QMessageBox.critical(self, "配色", "无法读取或解析配色文件")
+                return
+
+            for k, v in (mapping or {}).items():
+                try:
+                    self.waveform_widget.set_curve_color(k, v)
+                except Exception:
+                    try:
+                        self.waveform_widget.set_curve_color(int(k), v)
+                    except Exception:
+                        pass
+
+            try:
+                self._rebuild_legend()
+            except Exception:
+                pass
+
+            QMessageBox.information(self, "配色", "配色已导入并应用")
+        except Exception:
+            logger.exception("导入配色失败")
+            QMessageBox.critical(self, "配色", "导入配色失败")
 
     def _on_grid_toggled(self):
         try:

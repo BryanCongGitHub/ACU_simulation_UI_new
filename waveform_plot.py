@@ -50,8 +50,16 @@ class WaveformPlotWidget(QWidget):
 
         # 提高图形部件的最小高度
         self.graphics_view.setMinimumHeight(500)
-
         layout.addWidget(self.graphics_view)
+        # store last hover info for tests/interaction
+        self.last_hover = {}
+
+        # connect mouse move on the scene to capture hover info
+        try:
+            self.graphics_view.scene().sigMouseMoved.connect(self._on_scene_mouse_moved)
+        except Exception:
+            # some headless or older environments may not support this signal
+            pass
         logger.info("WaveformPlotWidget UI初始化完成")
 
     def add_signal_plot(self, signal_id, signal_info):
@@ -390,3 +398,51 @@ class WaveformPlotWidget(QWidget):
         """清空所有绘图"""
         for signal_id in list(self.curves.keys()):
             self.remove_signal_plot(signal_id)
+
+    def _on_scene_mouse_moved(self, pos):
+        """Capture hover position and nearest sample values.
+
+        Stores a mapping in `self.last_hover` where keys are signal ids (string)
+        and values are dicts with `time` and `value` for the nearest timestamp.
+        This is intentionally best-effort and swallows exceptions so it is
+        safe to run in headless CI.
+        """
+        try:
+            if not hasattr(self, "controller"):
+                return
+
+            # map scene position to plot coordinates (view coordinates)
+            try:
+                view_pt = self.main_plot.vb.mapSceneToView(pos)
+                x = float(view_pt.x())
+            except Exception:
+                # fallback: if mapping fails, treat x as 0
+                x = 0.0
+
+            timestamps = self.controller.get_timestamps() or []
+            if not timestamps:
+                return
+
+            start = timestamps[0]
+            rel = [t - start for t in timestamps]
+
+            # find nearest index to x (relative time)
+            try:
+                idx = min(range(len(rel)), key=lambda i: abs(rel[i] - x))
+            except Exception:
+                idx = 0
+
+            info = {}
+            for sid, curve_info in self.curves.items():
+                try:
+                    data = self.controller.get_signal_data(sid) or []
+                    if idx < len(data):
+                        info[str(sid)] = {"time": timestamps[idx], "value": data[idx]}
+                except Exception:
+                    # ignore individual signal errors
+                    pass
+
+            self.last_hover = info
+        except Exception:
+            # never raise from hover handling
+            pass

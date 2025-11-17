@@ -125,4 +125,57 @@ PR QA checklist
 - Export CSV for selected signals and confirm header uses signal display names.
 - Click `预览缩略图` and confirm a thumbnail appears in the toolbar.
 
+CI UI Test Results (artifact)
+-----------------------------
+CI runs targeted UI tests (palette save/load and legend interaction) and uploads
+the captured pytest output as an artifact named `ui-tests-output`. Reviewers can
+download this artifact from the Actions run for quick validation without the CI
+modifying repository files. Example usage:
+
+1. Open the GitHub Actions run for the workflow.
+2. Download the `ui-tests-output` artifact from the run's Artifacts section.
+3. Inspect `ui_tests_output.txt` for pytest output and timestamps.
+
+If you prefer the CI to append results into `README_DEV.md` instead, tell me and
+I will switch back to the commit-and-push behavior (note: that requires write
+permissions for the Actions runner and may be blocked by branch protections).
+
+PR 测试输出摘要（已保存）
+---------------------------------
+下面是可粘贴到 PR 描述的测试输出摘要，我已将其保存到此处以便留存。包含变更要点、运行命令、示例 pytest 输出块，以及 CI artifact 的说明。
+
+变更摘要
+- 将波形视图的配色保存/加载、交互图例等功能补充进 UI，并新增相应测试。
+- CI 已配置运行针对性的 UI 测试并把输出以 artifact (`ui-tests-output`) 上传，便于 Reviewers 下载查看。
+
+包含的测试
+- `tests/test_palette_save_load_pytestqt.py` — 验证 palette 保存到 `QSettings` 并能成功恢复到曲线颜色。
+- `tests/test_legend_interaction_pytestqt.py` — 验证交互式图例的颜色编辑与可见性切换（用 `QColorDialog` 的模拟返回）。
+
+如何在本地复现（PowerShell）
+```powershell
+$env:PYTHONPATH = "E:\Codes\py\py_vscode\ACU_simulation_UI"
+$env:QT_QPA_PLATFORM = "offscreen"
+pytest -q tests/test_palette_save_load_pytestqt.py tests/test_legend_interaction_pytestqt.py
+```
+
+示例 pytest 输出（示意）
+```
+tests/test_palette_save_load_pytestqt.py . 
+tests/test_legend_interaction_pytestqt.py . 
+
+2 passed in 0.8s
+```
+
+CI 行为 / Artifact
+- CI workflow 会运行上述两个测试并把完整输出写入 `ui_tests_output.txt`，然后上传为 Actions artifact 名为 `ui-tests-output`。Reviewers 可在对应 Actions 运行页面的 Artifacts 区下载该文件查看完整日志与时间戳。
+
+注意（CI 状态）
+- 我注意到最近一次 CI 运行显示未通过（见 Actions 列表）。请在 GitHub Actions 的该 workflow 运行页面检查：
+  1. 下载 `ui-tests-output` artifact（如果存在）并查看 pytest 日志；
+  2. 查看 Actions 日志中具体失败步骤和 traceback；
+  3. 若需要，我可以帮你解析失败日志并提出修复建议。
+
+如果你希望我把 pytest 输出也写回 PR 描述（供审核时直接可见），我可以从 artifact 中提取并生成一个 ready-to-paste 的文本块。
+
 Add these steps to the PR description so reviewers can quickly validate the UX.
