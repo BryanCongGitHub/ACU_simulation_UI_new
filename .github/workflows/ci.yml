@@ -203,7 +203,7 @@ jobs:
 
       - name: Run targeted UI tests and capture output (xvfb)
         shell: bash
-        run: xvfb-run -a pytest tests/test_palette_save_load_pytestqt.py tests/test_legend_interaction_pytestqt.py | tee ui_tests_output.txt
+        run: xvfb-run -a pytest tests/test_palette_save_load_pytestqt.py tests/test_legend_interaction_pytestqt.py tests/test_waveform_plot_set_curve_visible.py | tee ui_tests_output.txt
 
       - name: Upload UI test output artifact
         uses: actions/upload-artifact@v4
