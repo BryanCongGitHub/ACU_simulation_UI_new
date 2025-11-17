@@ -88,11 +88,11 @@ class WaveformPlotWidget(QWidget):
         pen.setCosmetic(True)  # cosmetic pens ignore transformations
 
         if signal_info["type"] == "bool":
-            # 布尔信号使用虚线
-            pen.setStyle(Qt.DashLine)
+            # 布尔信号使用虚线（使用枚举以满足类型检查）
+            pen.setStyle(Qt.PenStyle.DashLine)
         else:
             # 模拟信号使用实线
-            pen.setStyle(Qt.SolidLine)
+            pen.setStyle(Qt.PenStyle.SolidLine)
 
         curve = pg.PlotDataItem(pen=pen, name=signal_info["name"])
 
@@ -124,9 +124,9 @@ class WaveformPlotWidget(QWidget):
             pen.setWidth(0)
             pen.setCosmetic(True)
             if curve_info.get("type") == "bool":
-                pen.setStyle(Qt.DashLine)
+                pen.setStyle(Qt.PenStyle.DashLine)
             else:
-                pen.setStyle(Qt.SolidLine)
+                pen.setStyle(Qt.PenStyle.SolidLine)
             curve_info["pen"] = pen
             curve_info["color"] = color_hex
             curve = curve_info["curve"]
