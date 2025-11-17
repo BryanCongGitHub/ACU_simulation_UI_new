@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings
 from waveform_controller import WaveformController
 from waveform_plot import WaveformPlotWidget
 import logging
@@ -32,6 +33,11 @@ class WaveformDisplay(QWidget):
         self.init_ui()
         self.setup_connections()
         self.bind_event_bus(event_bus)
+        # Load persisted UI/settings
+        try:
+            self.load_settings()
+        except Exception:
+            pass
 
     def bind_event_bus(self, event_bus):
         """绑定或更换事件总线，确保视图层与控制层解耦"""
@@ -85,18 +91,18 @@ class WaveformDisplay(QWidget):
         layout.addWidget(toolbar)
 
         # 分割区域
-        splitter = QSplitter(Qt.Horizontal)
+        self.splitter = QSplitter(Qt.Horizontal)
 
         # 左侧信号选择树
         self.signal_tree = self.create_signal_tree()
-        splitter.addWidget(self.signal_tree)
+        self.splitter.addWidget(self.signal_tree)
 
         # 右侧波形显示区域
         self.waveform_widget = WaveformPlotWidget(self.controller)
-        splitter.addWidget(self.waveform_widget)
+        self.splitter.addWidget(self.waveform_widget)
 
-        splitter.setSizes([350, 650])
-        layout.addWidget(splitter)
+        self.splitter.setSizes([350, 650])
+        layout.addWidget(self.splitter)
 
     def create_toolbar(self):
         toolbar = QWidget()
@@ -248,6 +254,14 @@ class WaveformDisplay(QWidget):
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump(rows, f, ensure_ascii=False, indent=2)
 
+            # remember last export path for convenience
+            try:
+                self._last_export_path = path
+                settings = QSettings()
+                settings.setValue("WaveformDisplay/last_export_path", path)
+            except Exception:
+                pass
+
             QMessageBox.information(self, "导出", f"导出成功: {path}")
         except Exception as e:
             logger.exception(f"导出失败: {e}")
@@ -357,3 +371,120 @@ class WaveformDisplay(QWidget):
     def add_receive_data(self, parsed_data, device_type, timestamp=None):
         """添加接收数据（供外部调用）"""
         self.controller.add_receive_data(parsed_data, device_type, timestamp)
+
+    def save_settings(self):
+        """Persist WaveformDisplay settings using QSettings."""
+        try:
+            settings = QSettings()
+            settings.beginGroup("WaveformDisplay")
+            # selected signals
+            sel = self.controller.get_selected_signals()
+            settings.setValue("selected_signals", list(sel))
+            # time range
+            settings.setValue("time_range", self.time_range_combo.currentText())
+            # auto range
+            settings.setValue("auto_range", self.auto_range_check.isChecked())
+            # last export path
+            settings.setValue(
+                "last_export_path", getattr(self, "_last_export_path", "")
+            )
+            # signal order: save checked items in tree order so plots can be
+            # restored in the same order
+            try:
+                order = []
+                for i in range(self.signal_tree.topLevelItemCount()):
+                    cat = self.signal_tree.topLevelItem(i)
+                    for j in range(cat.childCount()):
+                        item = cat.child(j)
+                        if item.checkState(0) == Qt.Checked:
+                            sid = item.data(0, Qt.UserRole)
+                            if sid:
+                                order.append(str(sid))
+                settings.setValue("signal_order", order)
+            except Exception:
+                pass
+            # splitter sizes
+            try:
+                if getattr(self, "splitter", None) is not None:
+                    settings.setValue("splitter_sizes", self.splitter.sizes())
+            except Exception:
+                pass
+            settings.endGroup()
+            settings.sync()
+        except Exception:
+            logger.exception("保存 WaveformDisplay 设置失败")
+
+    def load_settings(self):
+        """Load persisted WaveformDisplay settings and apply to UI."""
+        try:
+            settings = QSettings()
+            settings.beginGroup("WaveformDisplay")
+            sel = settings.value("selected_signals", []) or []
+            time_range = settings.value(
+                "time_range", self.time_range_combo.currentText()
+            )
+            auto_range = settings.value("auto_range", True)
+            last_export = settings.value("last_export_path", "") or ""
+            signal_order = settings.value("signal_order", []) or []
+            splitter_sizes = settings.value("splitter_sizes", None)
+            settings.endGroup()
+
+            # apply time range and auto range
+            try:
+                if time_range:
+                    self.time_range_combo.setCurrentText(time_range)
+            except Exception:
+                pass
+            try:
+                self.auto_range_check.setChecked(bool(auto_range))
+            except Exception:
+                pass
+
+            # remember last export
+            self._last_export_path = last_export
+
+            # restore splitter sizes
+            try:
+                if splitter_sizes and getattr(self, "splitter", None) is not None:
+                    try:
+                        sizes = [int(x) for x in splitter_sizes]
+                    except Exception:
+                        sizes = splitter_sizes
+                    self.splitter.setSizes(sizes)
+            except Exception:
+                pass
+
+            # apply selected signals: find items in tree and check them
+            if sel:
+                # build a lookup of signal_id -> QTreeWidgetItem
+                lookup = {}
+                for i in range(self.signal_tree.topLevelItemCount()):
+                    cat = self.signal_tree.topLevelItem(i)
+                    for j in range(cat.childCount()):
+                        item = cat.child(j)
+                        sid = item.data(0, Qt.UserRole)
+                        if sid:
+                            lookup[str(sid)] = item
+
+                # If saved order exists, apply it first so plots are added in
+                # the saved order; otherwise, fall back to sel order.
+                apply_order = signal_order if signal_order else sel
+
+                for sid in apply_order:
+                    item = lookup.get(str(sid))
+                    if item is not None:
+                        # set checked state without triggering selection logic twice
+                        block = item.blockSignals(True)
+                        item.setCheckState(0, Qt.Checked)
+                        item.blockSignals(block)
+                        try:
+                            self.controller.select_signal(sid)
+                            # add plot in the same order
+                            self.waveform_widget.add_signal_plot(
+                                sid, self.controller.signal_manager.get_signal_info(sid)
+                            )
+                        except Exception:
+                            pass
+
+        except Exception:
+            logger.exception("加载 WaveformDisplay 设置失败")

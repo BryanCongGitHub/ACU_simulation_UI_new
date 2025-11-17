@@ -39,21 +39,44 @@ def setup_qt_environment():
             )
 
     else:
-        # Running in a development environment
+        # Running in a development environment — prefer QLibraryInfo when available
         try:
-            import PySide6
+            import PySide6 as _PySide6  # keep import for detection
 
-            pyside6_dir = Path(PySide6.__file__).parent
-            plugin_path = pyside6_dir / "plugins"
+            try:
+                from PySide6.QtCore import QLibraryInfo
 
-            if plugin_path.exists():
-                os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(plugin_path)
-                os.environ["QT_PLUGIN_PATH"] = str(plugin_path)
-                logging.getLogger(__name__).info(
-                    "Dev env - Qt plugin path: %s", plugin_path
-                )
-            else:
-                logging.getLogger(__name__).warning("Qt plugin path not found")
+                # Use QLibraryInfo to obtain canonical Qt locations
+                # QLibraryInfo.location() is deprecated; use path() instead.
+                plugins_path = QLibraryInfo.path(QLibraryInfo.PluginsPath)
+                qml_path = QLibraryInfo.path(QLibraryInfo.Qml2ImportsPath)
+
+                if plugins_path:
+                    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = plugins_path
+                    os.environ["QT_PLUGIN_PATH"] = plugins_path
+                    logging.getLogger(__name__).info(
+                        "Dev env - QLibraryInfo plugins path: %s", plugins_path
+                    )
+
+                if qml_path:
+                    os.environ["QML2_IMPORT_PATH"] = qml_path
+                    logging.getLogger(__name__).info(
+                        "Dev env - QML2 import path: %s", qml_path
+                    )
+
+            except Exception:
+                # Fall back to locating PySide6 package files on disk
+                pyside6_dir = Path(_PySide6.__file__).parent
+                plugin_path = pyside6_dir / "plugins"
+
+                if plugin_path.exists():
+                    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(plugin_path)
+                    os.environ["QT_PLUGIN_PATH"] = str(plugin_path)
+                    logging.getLogger(__name__).info(
+                        "Dev env - Qt plugin path: %s", plugin_path
+                    )
+                else:
+                    logging.getLogger(__name__).warning("Qt plugin path not found")
 
         except ImportError as e:
             logging.getLogger(__name__).error("Unable to import PySide6: %s", e)

@@ -40,23 +40,12 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 try:
-    from ACU_simulation import ACUSimulator
-    from PySide6.QtWidgets import QApplication
+    from app.bootstrap import run
 
     if __name__ == "__main__":
         print("正在启动ACU仿真器...")
-        app = QApplication(sys.argv)
-
-        # 设置应用程序属性
-        app.setApplicationName("ACU Simulator")
-        app.setApplicationVersion("2.0")
-        app.setOrganizationName("Railway System")
-
-        window = ACUSimulator()
-        window.show()
-
-        print("ACU仿真器启动成功！")
-        sys.exit(app.exec())
+        exit_code = run(sys.argv)
+        sys.exit(exit_code)
 
 except Exception as e:
     print(f"启动失败: {e}")

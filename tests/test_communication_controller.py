@@ -90,6 +90,36 @@ def test_setup_is_idempotent_and_recycles_sockets():
     assert ctrl.running is True
 
 
+def test_setup_can_restart_while_receive_loop_running():
+    ctrl = CommunicationController()
+    factory = FakeSocketFactory()
+
+    with patch_sockets(factory):
+        assert ctrl.setup() is True
+        ctrl.start_receive_loop()
+        first_thread = ctrl._receive_thread
+        assert first_thread is not None and first_thread.is_alive()
+        first_send, first_recv = factory.instances[:2]
+
+        ctrl.update_config(acu_receive_port=49201)
+        assert ctrl.setup() is True  # second setup while previous loop was running
+        second_send, second_recv = factory.instances[2:4]
+        assert first_send.closed and first_recv.closed
+        assert not first_thread.is_alive()
+
+        ctrl.start_receive_loop()
+        second_thread = ctrl._receive_thread
+        assert second_thread is not None and second_thread is not first_thread
+        assert ctrl.send_sock is second_send and ctrl.recv_sock is second_recv
+
+        ctrl.stop()
+        assert ctrl.send_sock is None and ctrl.recv_sock is None
+
+    if second_thread is not None:
+        second_thread.join(timeout=1.0)
+        assert not second_thread.is_alive()
+
+
 def test_setup_failure_cleans_up_partial_state():
     ctrl = CommunicationController()
     factory = FakeSocketFactory()
