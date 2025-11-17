@@ -62,3 +62,40 @@ This repo includes a CI workflow at `.github/workflows/ci.yml` which:
 
 If CI fails on linting steps, run `pre-commit run --all-files` locally and fix or auto-format
 with `black .` before pushing.
+
+Final changes in `feature/gui-migration-waveform-settings`
+-------------------------------------------------------
+
+The branch consolidates UI migration work for the ACUSimulator waveform view and
+adds several UX improvements and test fixes. Summary of the important changes:
+
+- **Compact, interactive legend**: the waveform view now shows a compact legend
+  below the plot with a small visibility checkbox, a color swatch button and a
+  short label for each selected signal. Clicking the checkbox toggles curve
+  visibility; clicking the swatch opens a color picker to change the curve
+  color.
+- **Palette save / load**: users can save the current signal color mapping into
+  `QSettings` (stored as JSON under `WaveformDisplay/palette`) and reload it later
+  to restore custom palettes.
+- **Programmatic visibility control**: `waveform_plot.py` exposes
+  `set_curve_visible(signal_id, visible)` used by the interactive legend.
+- **CSV export & UX polish**: improved CSV export headers (use display names),
+  thumbnail preview button, theme/legend/grid toggles and signal tree tooltips.
+- **Tests & pytest config fixes**: restored a local `qapp` fixture in one test
+  and removed a forced `-p pytestqt.plugin` addopt from `pyproject.toml` to avoid
+  duplicate pytest-qt plugin registration issues. The full test-suite was run
+  locally in the `acu_sim_311` environment and reports `43 passed`.
+
+Developer notes / how this was tested
+------------------------------------
+
+- Tests were run locally with `PySide6 6.10.0` and `pytest-qt` available.
+- If you prefer to disable plugin auto-discovery (some CI setups), set
+  `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` and ensure the `pytest-qt` plugin is
+  explicitly loaded (or use the provided `run_pytest_no_pyc.bat` / PowerShell
+  wrapper). The branch chooses to let pytest auto-discover plugins by default
+  to remain compatible with typical developer environments.
+
+If you'd like, I can also add a short QA checklist for the PR (manual steps to
+verify color save/load, legend visibility toggles, and CSV export) and a small
+UI test that exercises the color-change flow.
