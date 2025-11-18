@@ -316,6 +316,32 @@ class SettingsDialog(QDialog):
             logger.exception("Restore defaults failed: %s", exc)
             QMessageBox.critical(self, "Restore failed", str(exc))
 
+    def _on_export_palette_clicked(self):
+        """Handler for the Export Palette button in the dialog UI."""
+        try:
+            ok = self.export_palette_to_file(parent=self)
+            if ok:
+                QMessageBox.information(self, "Export Palette", "配色已导出")
+            else:
+                QMessageBox.information(self, "Export Palette", "导出已取消或失败")
+        except Exception:
+            logger.exception("Export palette button handler failed")
+            QMessageBox.critical(self, "Export Palette", "导出失败")
+
+    def _on_import_palette_clicked(self):
+        """Handler for the Import Palette button in the dialog UI."""
+        try:
+            mapping = self.import_palette_from_file(parent=self)
+            if mapping:
+                QMessageBox.information(
+                    self, "Import Palette", "配色已导入并保存到设置"
+                )
+            else:
+                QMessageBox.information(self, "Import Palette", "导入已取消或失败")
+        except Exception:
+            logger.exception("Import palette button handler failed")
+            QMessageBox.critical(self, "Import Palette", "导入失败")
+
     @staticmethod
     def reset_all_settings():
         """Convenience to clear all QSettings groups."""
