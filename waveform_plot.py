@@ -41,7 +41,8 @@ class WaveformPlotWidget(QWidget):
         self.main_plot.showGrid(x=True, y=True, alpha=0.3)
         self.main_plot.setLabel("left", "信号值")
         self.main_plot.setLabel("bottom", "时间", "s")
-        self.main_plot.addLegend(offset=(-10, 10))
+        # keep a reference to legend so we can toggle visibility later
+        self.legend = self.main_plot.addLegend(offset=(-10, 10))
 
         # 设置合理的初始范围
         self.main_plot.setYRange(0, 100)
@@ -49,8 +50,16 @@ class WaveformPlotWidget(QWidget):
 
         # 提高图形部件的最小高度
         self.graphics_view.setMinimumHeight(500)
-
         layout.addWidget(self.graphics_view)
+        # store last hover info for tests/interaction
+        self.last_hover = {}
+
+        # connect mouse move on the scene to capture hover info
+        try:
+            self.graphics_view.scene().sigMouseMoved.connect(self._on_scene_mouse_moved)
+        except Exception:
+            # some headless or older environments may not support this signal
+            pass
         logger.info("WaveformPlotWidget UI初始化完成")
 
     def add_signal_plot(self, signal_id, signal_info):
@@ -79,11 +88,11 @@ class WaveformPlotWidget(QWidget):
         pen.setCosmetic(True)  # cosmetic pens ignore transformations
 
         if signal_info["type"] == "bool":
-            # 布尔信号使用虚线
-            pen.setStyle(Qt.DashLine)
+            # 布尔信号使用虚线（使用枚举以满足类型检查）
+            pen.setStyle(Qt.PenStyle.DashLine)
         else:
             # 模拟信号使用实线
-            pen.setStyle(Qt.SolidLine)
+            pen.setStyle(Qt.PenStyle.SolidLine)
 
         curve = pg.PlotDataItem(pen=pen, name=signal_info["name"])
 
@@ -98,6 +107,112 @@ class WaveformPlotWidget(QWidget):
         logger.info(
             f"添加信号曲线: {signal_info['name']}, 类型: {signal_info['type']}, 颜色: {color}"
         )
+
+    def set_curve_color(self, signal_id, color_hex: str):
+        """Change the color of an existing curve identified by signal_id.
+
+        color_hex should be a hex string like '#RRGGBB'. This updates the pen
+        and keeps the cosmetic width behavior.
+        """
+        if signal_id not in self.curves:
+            return
+        try:
+            from PySide6.QtGui import QColor, QPen
+
+            curve_info = self.curves[signal_id]
+            pen = QPen(QColor(color_hex))
+            pen.setWidth(0)
+            pen.setCosmetic(True)
+            if curve_info.get("type") == "bool":
+                pen.setStyle(Qt.PenStyle.DashLine)
+            else:
+                pen.setStyle(Qt.PenStyle.SolidLine)
+            curve_info["pen"] = pen
+            curve_info["color"] = color_hex
+            curve = curve_info["curve"]
+            # re-create the PlotDataItem with new pen by updating pen property
+            try:
+                curve.setPen(pen)
+            except Exception:
+                # fallback: remove and re-add
+                try:
+                    self.main_plot.removeItem(curve)
+                    new_curve = pg.PlotDataItem(pen=pen, name=curve.name())
+                    self.main_plot.addItem(new_curve)
+                    curve_info["curve"] = new_curve
+                except Exception:
+                    pass
+        except Exception:
+            logger.exception("设置曲线颜色失败")
+
+    def set_theme(self, theme: str):
+        """Switch plot theme between 'light' and 'dark'."""
+        try:
+            if theme == "dark":
+                pg.setConfigOption("background", "k")
+                pg.setConfigOption("foreground", "w")
+                self.main_plot.showGrid(x=True, y=True, alpha=0.2)
+            else:
+                pg.setConfigOption("background", "w")
+                pg.setConfigOption("foreground", "k")
+                self.main_plot.showGrid(x=True, y=True, alpha=0.3)
+            # apply immediately to the plot area
+            try:
+                self.graphics_view.setBackground(pg.getConfig("background"))
+            except Exception:
+                pass
+        except Exception:
+            logger.exception("切换主题失败")
+
+    def show_legend(self, visible: bool):
+        """Show or hide the legend."""
+        try:
+            if getattr(self, "legend", None) is not None:
+                try:
+                    self.legend.setVisible(visible)
+                except Exception:
+                    # some versions may require removing/adding
+                    if not visible:
+                        try:
+                            self.legend.scene().removeItem(self.legend)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            self.legend = self.main_plot.addLegend(offset=(-10, 10))
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    def set_curve_visible(self, signal_id, visible: bool):
+        """Set visibility of a specific curve without removing it."""
+        try:
+            if signal_id not in self.curves:
+                return
+            curve_info = self.curves[signal_id]
+            curve = curve_info.get("curve")
+            if curve is not None:
+                try:
+                    curve.setVisible(bool(visible))
+                except Exception:
+                    # fallback: remove or re-add as needed
+                    if not visible:
+                        try:
+                            self.main_plot.removeItem(curve)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            new_curve = pg.PlotDataItem(
+                                pen=curve_info.get("pen"), name=curve.name()
+                            )
+                            self.main_plot.addItem(new_curve)
+                            curve_info["curve"] = new_curve
+                        except Exception:
+                            pass
+        except Exception:
+            logger.exception("设置曲线可见性失败")
 
     def remove_signal_plot(self, signal_id):
         """移除信号绘图"""
@@ -283,3 +398,51 @@ class WaveformPlotWidget(QWidget):
         """清空所有绘图"""
         for signal_id in list(self.curves.keys()):
             self.remove_signal_plot(signal_id)
+
+    def _on_scene_mouse_moved(self, pos):
+        """Capture hover position and nearest sample values.
+
+        Stores a mapping in `self.last_hover` where keys are signal ids (string)
+        and values are dicts with `time` and `value` for the nearest timestamp.
+        This is intentionally best-effort and swallows exceptions so it is
+        safe to run in headless CI.
+        """
+        try:
+            if not hasattr(self, "controller"):
+                return
+
+            # map scene position to plot coordinates (view coordinates)
+            try:
+                view_pt = self.main_plot.vb.mapSceneToView(pos)
+                x = float(view_pt.x())
+            except Exception:
+                # fallback: if mapping fails, treat x as 0
+                x = 0.0
+
+            timestamps = self.controller.get_timestamps() or []
+            if not timestamps:
+                return
+
+            start = timestamps[0]
+            rel = [t - start for t in timestamps]
+
+            # find nearest index to x (relative time)
+            try:
+                idx = min(range(len(rel)), key=lambda i: abs(rel[i] - x))
+            except Exception:
+                idx = 0
+
+            info = {}
+            for sid, curve_info in self.curves.items():
+                try:
+                    data = self.controller.get_signal_data(sid) or []
+                    if idx < len(data):
+                        info[str(sid)] = {"time": timestamps[idx], "value": data[idx]}
+                except Exception:
+                    # ignore individual signal errors
+                    pass
+
+            self.last_hover = info
+        except Exception:
+            # never raise from hover handling
+            pass

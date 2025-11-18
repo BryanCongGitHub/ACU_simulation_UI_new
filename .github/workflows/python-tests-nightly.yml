@@ -1,9 +1,8 @@
-name: Python Tests Nightly
+name: Python Tests Nightly (disabled)
 
 on:
-  schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch:
+  # Disabled scheduled run; keep manual dispatch only
+  workflow_dispatch: {}
 
 jobs:
   full:

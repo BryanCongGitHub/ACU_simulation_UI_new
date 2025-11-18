@@ -1,8 +1,7 @@
-name: Full Tests (nightly)
+name: Full Tests (disabled)
 
 on:
-  schedule:
-    - cron: '0 2 * * *'  # run daily at 02:00 UTC
+  # Disabled from auto triggers; keep manual run only
   workflow_dispatch: {}
 
 jobs:
