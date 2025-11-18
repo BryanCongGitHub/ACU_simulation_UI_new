@@ -4,6 +4,45 @@ from waveform_controller import WaveformController
 from waveform_plot import WaveformPlotWidget
 
 
+class DummyController:
+    def __init__(self, timestamps, data_map):
+        self._timestamps = timestamps
+        self._data_map = data_map
+
+    def get_timestamps(self):
+        return self._timestamps
+
+    def get_signal_data(self, signal_id):
+        return self._data_map.get(signal_id, [])
+
+
+def test_hover_updates_last_hover(qtbot):
+    # prepare timestamps and single signal
+    timestamps = [0, 1, 2]
+    sig_id = 42
+    data_map = {sig_id: [10, 20, 30]}
+
+    controller = DummyController(timestamps, data_map)
+
+    widget = WaveformPlotWidget(controller)
+    qtbot.addWidget(widget)
+
+    # add signal metadata expected by add_signal_plot
+    widget.add_signal_plot(sig_id, {"name": "S1", "type": "analog"})
+
+    # Monkeypatch mapSceneToView to force x near first timestamp (0)
+    widget.main_plot.vb.mapSceneToView = lambda pos: QPointF(0.01, 0)
+
+    # call hover handler with arbitrary scene pos
+    widget._on_scene_mouse_moved(QPointF(0, 0))
+
+    # last_hover should contain the signal id as a string key
+    assert str(sig_id) in widget.last_hover
+    entry = widget.last_hover[str(sig_id)]
+    assert entry["time"] == timestamps[0]
+    assert entry["value"] == 10
+
+
 def test_hover_populates_last_hover(qtbot):
     ctrl = WaveformController()
 

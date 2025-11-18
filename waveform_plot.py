@@ -7,6 +7,8 @@ from PySide6.QtGui import QPen
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 from PySide6.QtWidgets import QVBoxLayout
+from PySide6.QtWidgets import QLabel
+import time
 
 # 配置pyqtgraph
 pg.setConfigOptions(
@@ -53,6 +55,15 @@ class WaveformPlotWidget(QWidget):
         layout.addWidget(self.graphics_view)
         # store last hover info for tests/interaction
         self.last_hover = {}
+        # UI hover label (throttled updates)
+        self.hover_label = QLabel("", self.graphics_view)
+        self.hover_label.setVisible(False)
+        self.hover_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.hover_label.setStyleSheet(
+            "background: rgba(255,255,225,230); border: 1px solid #888; padding: 4px;"
+        )
+        # last hover UI update timestamp (ms)
+        self._last_hover_update = 0
 
         # connect mouse move on the scene to capture hover info
         try:
@@ -442,7 +453,65 @@ class WaveformPlotWidget(QWidget):
                     # ignore individual signal errors
                     pass
 
+            # always update last_hover for tests or other logic
             self.last_hover = info
+
+            # Throttle UI updates to avoid high-frequency redraws
+            try:
+                current_ms = int(time.time() * 1000)
+                if current_ms - self._last_hover_update >= 150:
+                    # Build a short tooltip text (limit to first 6 signals)
+                    lines = []
+                    for i, sid in enumerate(sorted(info.keys())):
+                        if i >= 6:
+                            break
+                        val = info[sid]["value"]
+                        try:
+                            # try to recover a friendly name from curves
+                            key = int(sid) if sid.isdigit() else sid
+                            name = (
+                                self.curves.get(key, self.curves.get(sid, {}))
+                                .get("info", {})
+                                .get("name", str(sid))
+                            )
+                        except Exception:
+                            name = str(sid)
+                        lines.append(f"{name}: {val}")
+
+                    if lines:
+                        txt = "\n".join(lines)
+                        # try to position label near the pointer
+                        try:
+                            views = self.graphics_view.scene().views()
+                            if views:
+                                view_widget = views[0]
+                                widget_pt = view_widget.mapFromScene(pos)
+                                self.hover_label.setText(txt)
+                                self.hover_label.adjustSize()
+                                # place with small offset
+                                self.hover_label.move(
+                                    widget_pt.x() + 12, widget_pt.y() + 12
+                                )
+                                self.hover_label.setVisible(True)
+                        except Exception:
+                            # fallback to Qt tooltip if positioning fails
+                            try:
+                                from PySide6.QtWidgets import QToolTip
+
+                                QToolTip.showText(self.mapToGlobal(self.pos()), txt)
+                            except Exception:
+                                pass
+
+                    else:
+                        try:
+                            self.hover_label.setVisible(False)
+                        except Exception:
+                            pass
+
+                    self._last_hover_update = current_ms
+            except Exception:
+                # swallow UI hover exceptions
+                pass
         except Exception:
             # never raise from hover handling
             pass
