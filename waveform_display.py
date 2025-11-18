@@ -139,6 +139,12 @@ class WaveformDisplay(QWidget):
         self.export_btn = QPushButton("导出数据")
         self.export_btn.setMinimumHeight(30)
         self.export_btn.setToolTip("导出当前选中信号的历史数据为 CSV 或 JSON")
+        # accessibility: keyboard shortcut and accessible name for export
+        try:
+            self.export_btn.setShortcut("Ctrl+E")
+            self.export_btn.setAccessibleName("export_data")
+        except Exception:
+            pass
 
         # thumbnail preview button + label
         self.thumb_btn = QPushButton("预览缩略图")
@@ -147,6 +153,10 @@ class WaveformDisplay(QWidget):
         self.thumb_label = QLabel("")
         self.thumb_label.setFixedSize(160, 80)
         self.thumb_label.setVisible(False)
+        try:
+            self.thumb_label.setAccessibleName("thumbnail_preview")
+        except Exception:
+            pass
 
         self.time_range_combo = QComboBox()
         self.time_range_combo.addItems(["1分钟", "5分钟", "10分钟", "30分钟", "1小时"])
@@ -175,6 +185,12 @@ class WaveformDisplay(QWidget):
         self.legend_check = QCheckBox("显示图例")
         self.legend_check.setChecked(True)
         self.legend_check.setToolTip("切换图例显示")
+        try:
+            # keyboard shortcut to toggle legend visibility
+            self.legend_check.setShortcut("Ctrl+L")
+            self.legend_check.setAccessibleName("toggle_legend")
+        except Exception:
+            pass
         self.grid_btn = QPushButton("切换网格")
         self.grid_btn.setToolTip("显示/隐藏网格")
         layout.addWidget(self.theme_combo)
@@ -183,12 +199,32 @@ class WaveformDisplay(QWidget):
         # palette save/load
         self.save_palette_btn = QPushButton("保存配色")
         self.save_palette_btn.setToolTip("保存当前信号颜色映射到设置")
+        try:
+            self.save_palette_btn.setAccessibleName("save_palette")
+            self.save_palette_btn.setShortcut("Ctrl+Shift+S")
+        except Exception:
+            pass
         self.load_palette_btn = QPushButton("加载配色")
         self.load_palette_btn.setToolTip("从设置中加载信号颜色映射")
+        try:
+            self.load_palette_btn.setAccessibleName("load_palette")
+            self.load_palette_btn.setShortcut("Ctrl+Shift+L")
+        except Exception:
+            pass
         self.export_palette_btn = QPushButton("导出配色")
         self.export_palette_btn.setToolTip("将当前配色导出为 JSON 文件以便共享或备份")
+        try:
+            self.export_palette_btn.setAccessibleName("export_palette")
+            self.export_palette_btn.setShortcut("Ctrl+Shift+E")
+        except Exception:
+            pass
         self.import_palette_btn = QPushButton("导入配色")
         self.import_palette_btn.setToolTip("从 JSON 文件导入配色并应用到当前视图")
+        try:
+            self.import_palette_btn.setAccessibleName("import_palette")
+            self.import_palette_btn.setShortcut("Ctrl+Shift+I")
+        except Exception:
+            pass
         layout.addWidget(self.save_palette_btn)
         layout.addWidget(self.load_palette_btn)
         layout.addWidget(self.export_palette_btn)
@@ -552,6 +588,12 @@ class WaveformDisplay(QWidget):
                     return lambda: self._on_legend_color_clicked(s, btn)
 
                 color_btn.clicked.connect(_make_color_click(sid, color_btn))
+
+                try:
+                    vis.setAccessibleName(f"legend_vis_{sid}")
+                    color_btn.setAccessibleName(f"legend_color_{sid}")
+                except Exception:
+                    pass
 
                 hl.addWidget(vis)
                 hl.addWidget(color_btn)

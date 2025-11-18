@@ -1,74 +1,104 @@
-# PR: UI: add throttled hover tooltip, hover tests, and robust test imports
+# PR: UI — migrate waveform palette IO to SettingsDialog, add throttled hover tooltip and tests
 
-## 概要
+## 简要说明
 
-- 在波形绘图组件中新增一个轻量的悬停提示（`QLabel`），用于以节流（150ms）频率显示附近若干信号的时间/值摘要；同时确保 `self.last_hover` 始终更新以便 headless 测试或外部逻辑使用。
-- 新增 pytest-qt 覆盖：`tests/test_waveform_hover_pytestqt.py`，验证 `_on_scene_mouse_moved` 能正确填充 `last_hover`。
-- 为提高测试在不同环境（Windows / CI / headless）下的稳定性，在 `tests/conftest.py` 中保证将项目根目录加入 `sys.path`（修复此前出现的 ModuleNotFoundError）。
-- 修复了少量格式化与 lint 问题（black / flake8），并确保本地测试通过。
+- 本次变更将波形视图的配色（palette）持久化与文件导入/导出逻辑集中到 `SettingsDialog`，并把工具栏相关按钮改为打开该对话框（保持回退逻辑）。
+- 在绘图组件中新增轻量悬停提示（`hover_label`），以 150ms 节流频率显示附近信号的时间/值摘要，并保证 `self.last_hover` 在 headless 环境下也能被测试读取。
+- 补充或更新若干 pytest-qt UI 测试：hover、缩略图、CSV 导出头（严格检查）等，以提高 CI/本地测试覆盖与稳定性。
 
-## 变更清单（高层）
+## 变更要点（高层）
 
-- 修改：`waveform_plot.py`
-  - 新增 `hover_label: QLabel`，添加 150ms UI 节流更新逻辑；
-  - 在 `_on_scene_mouse_moved` 中构建简短文本并尝试将 `hover_label` 定位到光标附近；
-  - 对 headless / 旧 Qt 环境增加安全回退逻辑（避免抛出）。
-- 新增：`tests/test_waveform_hover_pytestqt.py`
-  - 通过模拟/替换 `mapSceneToView` 或使用 `WaveformController` 驱动，断言 `last_hover` 包含正确的时间/值。
-- 修改：`tests/conftest.py`
-  - 在测试会话初始化阶段把项目根插入 `sys.path`，保证顶级包（`controllers`、`gui` 等）按预期被导入。
-- 其它：若干文件格式化（black）与 lint 修复（flake8）。
+- `gui/settings_dialog.py`
+  - 新增并公开 palette IO helpers：`save_palette_to_settings`, `load_palette_from_settings`, `export_palette_to_file`, `import_palette_from_file`；并添加 UI 按钮与回调。
+- `waveform_display.py`
+  - 工具栏的配色按钮现在打开 `SettingsDialog`（`_open_settings_dialog`）；程序调用仍可通过 `self._settings_dialog_cls` 的静态方法访问 palette IO，保留回退实现以兼容旧环境。
+  - 更新了配色保存/加载/导出/导入处理器，优先使用 `SettingsDialog` 的 helpers，失败时回退到原实现。
+- `waveform_plot.py`
+  - 新增 `hover_label`（`QLabel`）与 150ms 节流显示逻辑；在 `_on_scene_mouse_moved` 中更新 `self.last_hover`（便于 headless 测试断言）。
+- 测试（`tests/`）
+  - 新增/更新：`tests/test_waveform_hover_pytestqt.py`、`tests/test_waveform_thumb_pytestqt.py`、`tests/test_export_csv_strict_pytestqt.py` 等。
+  - 在 `tests/conftest.py` 中确保测试时将项目根加入 `sys.path`，并通过 monkeypatch 屏蔽阻塞对话框以提高 headless CI 的稳定性。
 
-## 动机 / 为什么要做
+## 动机
 
-- UX：快速的悬停摘要帮助用户在查看波形时快速定位并读出附近样本值，无需打开额外面板。
-- 性能：通过 150ms 节流，避免高频鼠标移动时频繁重绘导致的性能问题。
-- 稳定性：CI 与 Windows 环境在不同 Pytest 导入路径下曾出现 ModuleNotFoundError，`conftest.py` 的修改能显著提高跨环境测试稳定性，减少不必要的 CI 报错噪声。
+- UX：悬停摘要帮助快速读取附近样本值。
+- 可维护性：将配色 IO 统一到设置对话框，便于集中管理与单元测试。
+- 稳定性：调整测试初始化逻辑以减少 CI 在不同环境下的导入失败和弹窗阻塞。
 
-## 测试
+## 测试（本地结果）
 
-- 本地验证（在 `acu_sim_311` 环境）：
-  - 全量测试：`pytest -vv --durations=25` → 全部通过（示例：51 passed）。
-  - 单测示例：`pytest -q tests/test_waveform_hover_pytestqt.py` → 新增测试通过。
-- 建议 reviewer 在本地或 CI 上运行以下命令复现验证：
+- 在本地 Conda 环境 `acu_sim_311` 上运行全部测试：`pytest -q` → 52 passed（包含新增的 UI 测试）。
+- 我在本地运行了以下重点测试：
+  - `tests/test_export_csv_strict_pytestqt.py`
+  - `tests/test_waveform_thumb_pytestqt.py`
+  - `tests/test_waveform_hover_pytestqt.py`
+
+## 如何在本地复现（Reviewers）
+
+1. 激活项目虚拟环境（示例）：
 
 ```powershell
-# 在项目根（已激活 acu_sim_311）运行全部测试
-pytest -vv --durations=25
-
-# 或仅运行悬停测试
-pytest -q tests/test_waveform_hover_pytestqt.py -q
+conda activate acu_sim_311
 ```
 
-## 审查要点
+2. 在项目根运行全部测试：
 
-- 请重点审查 `waveform_plot.py` 中：
-  - `hover_label` 的创建与样式（是否满足产品/视觉要求）；
-  - 节流阈值（150ms）是否合适，是否需要可配置化；
-  - headless/异常回退路径是否充分（不能在无显示环境抛出）。
-- `tests/conftest.py`：确认将项目根插入 `sys.path` 的做法是否符合项目约定（该改动用于提高 CI/Windows 的稳定性；如需更严格的包导入策略，可讨论替代方案）。
-- 测试：确认新增的 `tests/test_waveform_hover_pytestqt.py` 覆盖了预期场景；如需，也可以补充针对 `hover_label` 可见性/文本的 UI 测试（仅在有显示环境或在能模拟 `views()` 的前提下可靠）。
+```powershell
+pytest -q
+```
 
-## 回滚
+3. 或只运行单个测试以加速复现：
 
-- 如果需要回退：
-  - 回滚 `waveform_plot.py` 的 hover 相关改动；
-  - 删除 `tests/test_waveform_hover_pytestqt.py`；
-  - 恢复 `tests/conftest.py` 原样（撤销 sys.path 注入）。
-- 回滚命令示例（从 PR 分支）：
+```powershell
+pytest -q tests/test_waveform_hover_pytestqt.py
+pytest -q tests/test_waveform_thumb_pytestqt.py
+pytest -q tests/test_export_csv_strict_pytestqt.py
+```
+
+注意：测试中使用了 monkeypatch 来替换 `QMessageBox`/`QFileDialog`，以避免弹窗阻塞 CI。
+
+## 审查要点（Review checklist）
+
+- `waveform_plot.py`：
+  - 检查 `hover_label` 的外观与文本内容是否符合视觉/UX 要求。
+  - 是否需要将节流阈值（当前 150ms）暴露为可配置项。
+  - 确认 headless 回退路径不会在无显示环境抛出异常。
+- `gui/settings_dialog.py`：
+  - 检查导入/导出逻辑（文件选择、JSON 读写、写入 QSettings）是否符合预期并有合理的错误回退。
+- `waveform_display.py`：
+  - 工具栏按钮现在打开 `SettingsDialog`，确认交互路径清晰且无重复行为。
+- 测试：
+  - 新增/修改的测试是否合理、是否有冗余依赖 GUI 可见性（headless 友好）。
+
+## 回滚指南
+
+如需回退该 PR 的改动，可使用 Git 回滚或重置至上一个稳定提交：
 
 ```bash
 git checkout main
-git revert <commit-hash>   # 或重置分支/恢复到特定提交，视团队流程而定
+git revert <commit-hash>
 ```
 
-## QA 建议步骤（手动验证）
+或在分支上重置到某个已知提交并 force-push（与团队流程一致时使用）：
 
-1. 启动应用或在 dev 环境打开 `WaveformDisplay` 页面；
-2. 将鼠标移动到波形区域，观察是否在光标附近显示小悬停框（或至少 `last_hover` 被填充）；
-3. 快速移动鼠标验证没有明显卡顿，且悬停信息跟随更新（节流后约 150ms 更新频率）；
-4. 在 headless 环境（CI）确认不会因 UI 操作导致测试失败。
+```bash
+git reset --hard <commit-hash>
+git push --force-with-lease origin feature/gui-migration-waveform-settings
+```
+
+## 建议的 PR 标题与正文
+
+- Title: "UI: migrate waveform palette IO to SettingsDialog; add throttled hover tooltip and tests"
+- Body: 使用本文件全部内容（`PR_DESCRIPTION.md`）作为 PR 描述。
+
+## 在 GitHub 上创建 PR（示例 `gh` 命令）
+
+```powershell
+gh pr create --base main --head feature/gui-migration-waveform-settings --title "UI: migrate waveform palette IO to SettingsDialog; add throttled hover tooltip and tests" --body-file PR_DESCRIPTION.md
+```
+
+如果需要，我可以替你生成一个 draft PR 文案或直接在网络可用时调用 `gh` 帮你创建 PR（需你在本机已登录 `gh`）。
 
 ---
 
-> 本文件由自动化助手生成，可按需修改。若需我将该内容直接在 GitHub PR 页面填入并打开 PR（需要授权或你复制粘贴），我也可以协助。
+本文件由自动化助手协助生成。若需我把该内容直接提交为 PR 描述并打开 PR，请告诉我授权与偏好（draft / request reviewers）。
