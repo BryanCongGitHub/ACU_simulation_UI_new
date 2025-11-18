@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtCore import QSettings
-import json
 from waveform_controller import WaveformController
 from waveform_plot import WaveformPlotWidget
 import logging
@@ -40,32 +39,9 @@ class WaveformDisplay(QWidget):
         except Exception:
             pass
 
-    def bind_event_bus(self, event_bus):
-        """绑定或更换事件总线，确保视图层与控制层解耦"""
-        if self.event_bus is event_bus:
-            return
-        # 解除旧连接
-        if self.event_bus:
-            try:
-                self.event_bus.waveform_send.disconnect(self._on_bus_waveform_send)
-                self.event_bus.waveform_receive.disconnect(
-                    self._on_bus_waveform_receive
-                )
-                self.event_bus.recording_toggle.disconnect(
-                    self._on_bus_recording_toggle
-                )
-            except Exception:
-                pass
-        self.event_bus = event_bus
-        if event_bus:
-            event_bus.waveform_send.connect(self._on_bus_waveform_send)
-            event_bus.waveform_receive.connect(self._on_bus_waveform_receive)
-            event_bus.recording_toggle.connect(self._on_bus_recording_toggle)
-
     def init_ui(self):
+        """Create and arrange widgets for the WaveformDisplay UI."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
 
         # 工具栏
         toolbar = self.create_toolbar()
@@ -97,6 +73,60 @@ class WaveformDisplay(QWidget):
         self.legend_area.setWidget(legend_container)
         self.legend_area.setMaximumHeight(120)
         layout.addWidget(self.legend_area)
+
+        # ensure the layout is applied
+        self.setLayout(layout)
+
+    def bind_event_bus(self, event_bus):
+        """Bind or replace the ViewEventBus used to dispatch UI-level events.
+
+        The ViewEventBus has signals: `waveform_send`, `waveform_receive`,
+        and `recording_toggle`. When a new event_bus is provided we connect
+        those signals to local handlers; if `None` is given we simply clear
+        the reference.
+        """
+        # if unchanged, nothing to do
+        if self.event_bus is event_bus:
+            return
+
+        # unbind previous (best-effort)
+        try:
+            if self.event_bus is not None:
+                try:
+                    self.event_bus.waveform_send.disconnect(self._on_bus_waveform_send)
+                except Exception:
+                    pass
+                try:
+                    self.event_bus.waveform_receive.disconnect(
+                        self._on_bus_waveform_receive
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.event_bus.recording_toggle.disconnect(
+                        self._on_bus_recording_toggle
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        self.event_bus = event_bus
+        if self.event_bus is None:
+            return
+
+        try:
+            self.event_bus.waveform_send.connect(self._on_bus_waveform_send)
+        except Exception:
+            pass
+        try:
+            self.event_bus.waveform_receive.connect(self._on_bus_waveform_receive)
+        except Exception:
+            pass
+        try:
+            self.event_bus.recording_toggle.connect(self._on_bus_recording_toggle)
+        except Exception:
+            pass
 
     def _on_bus_waveform_send(self, data_buffer, timestamp):
         self.controller.add_send_data(data_buffer, timestamp)
@@ -630,30 +660,19 @@ class WaveformDisplay(QWidget):
         """
         try:
             curves = getattr(self.waveform_widget, "curves", {})
-            mapping = {}
-            for sid, info in curves.items():
-                try:
-                    mapping[str(sid)] = info.get("color") or "#000000"
-                except Exception:
-                    mapping[str(sid)] = "#000000"
+            mapping = {
+                str(sid): info.get("color") or "#000000" for sid, info in curves.items()
+            }
 
-            if getattr(self, "_settings_dialog_cls", None):
-                ok = self._settings_dialog_cls.save_palette_to_settings(mapping)
-                if ok:
-                    QMessageBox.information(self, "配色", "配色已保存")
-                else:
-                    QMessageBox.critical(self, "配色", "保存配色失败")
-            else:
-                # fallback
-                settings = QSettings()
-                settings.beginGroup("WaveformDisplay")
-                settings.setValue("palette", json.dumps(mapping, ensure_ascii=False))
-                settings.endGroup()
-                try:
-                    settings.sync()
-                except Exception:
-                    pass
+            cls = self._get_settings_dialog_cls()
+            if not cls:
+                QMessageBox.information(self, "配色", "设置对话框不可用，无法保存配色")
+                return
+            ok = cls.save_palette_to_settings(mapping)
+            if ok:
                 QMessageBox.information(self, "配色", "配色已保存")
+            else:
+                QMessageBox.critical(self, "配色", "保存配色失败")
         except Exception:
             logger.exception("保存配色失败")
             QMessageBox.critical(self, "配色", "保存配色失败")
@@ -661,18 +680,11 @@ class WaveformDisplay(QWidget):
     def _on_load_palette(self):
         """Load palette mapping from QSettings and apply colors to existing curves."""
         try:
-            if getattr(self, "_settings_dialog_cls", None):
-                mapping = self._settings_dialog_cls.load_palette_from_settings()
-            else:
-                settings = QSettings()
-                settings.beginGroup("WaveformDisplay")
-                raw = settings.value("palette", "") or ""
-                settings.endGroup()
-                try:
-                    mapping = json.loads(raw) if raw else {}
-                except Exception:
-                    mapping = {}
-
+            cls = self._get_settings_dialog_cls()
+            if not cls:
+                QMessageBox.information(self, "配色", "设置对话框不可用，无法加载配色")
+                return
+            mapping = cls.load_palette_from_settings()
             if not mapping:
                 QMessageBox.information(self, "配色", "未找到已保存的配色")
                 return
@@ -703,23 +715,15 @@ class WaveformDisplay(QWidget):
             mapping = {
                 str(sid): info.get("color") or "#000000" for sid, info in curves.items()
             }
-            if getattr(self, "_settings_dialog_cls", None):
-                ok = self._settings_dialog_cls.export_palette_to_file(
-                    mapping, parent=self
-                )
-                if ok:
-                    QMessageBox.information(self, "配色", "配色已导出")
-                else:
-                    QMessageBox.information(self, "配色", "导出已取消或失败")
+            cls = self._get_settings_dialog_cls()
+            if not cls:
+                QMessageBox.information(self, "配色", "设置对话框不可用，无法导出配色")
+                return
+            ok = cls.export_palette_to_file(mapping, parent=self)
+            if ok:
+                QMessageBox.information(self, "配色", "配色已导出")
             else:
-                path, _ = QFileDialog.getSaveFileName(
-                    self, "导出配色", "palette.json", "JSON 文件 (*.json)"
-                )
-                if not path:
-                    return
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(mapping, f, ensure_ascii=False, indent=2)
-                QMessageBox.information(self, "配色", f"配色已导出: {path}")
+                QMessageBox.information(self, "配色", "导出已取消或失败")
         except Exception:
             logger.exception("导出配色失败")
             QMessageBox.critical(self, "配色", "导出配色失败")
@@ -727,22 +731,11 @@ class WaveformDisplay(QWidget):
     def _on_import_palette(self):
         """Import a palette JSON file and apply it to existing curves."""
         try:
-            if getattr(self, "_settings_dialog_cls", None):
-                mapping = self._settings_dialog_cls.import_palette_from_file(
-                    parent=self
-                )
-            else:
-                path, _ = QFileDialog.getOpenFileName(
-                    self, "导入配色", "", "JSON 文件 (*.json)"
-                )
-                if not path:
-                    return
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        mapping = json.load(f)
-                except Exception:
-                    QMessageBox.critical(self, "配色", "无法读取或解析配色文件")
-                    return
+            cls = self._get_settings_dialog_cls()
+            if not cls:
+                QMessageBox.information(self, "配色", "设置对话框不可用，无法导入配色")
+                return
+            mapping = cls.import_palette_from_file(parent=self)
 
             for k, v in (mapping or {}).items():
                 try:
@@ -876,14 +869,12 @@ class WaveformDisplay(QWidget):
                 settings.setValue("signal_order", order)
             except Exception:
                 pass
-            # splitter sizes
+
+            settings.endGroup()
             try:
-                if getattr(self, "splitter", None) is not None:
-                    settings.setValue("splitter_sizes", self.splitter.sizes())
+                settings.sync()
             except Exception:
                 pass
-            settings.endGroup()
-            settings.sync()
         except Exception:
             logger.exception("保存 WaveformDisplay 设置失败")
 
@@ -909,21 +900,23 @@ class WaveformDisplay(QWidget):
             except Exception:
                 pass
             try:
-                self.auto_range_check.setChecked(bool(auto_range))
-            except Exception:
-                pass
-
-            # remember last export
-            self._last_export_path = last_export
-
-            # restore splitter sizes
-            try:
                 if splitter_sizes and getattr(self, "splitter", None) is not None:
                     try:
                         sizes = [int(x) for x in splitter_sizes]
                     except Exception:
                         sizes = splitter_sizes
                     self.splitter.setSizes(sizes)
+            except Exception:
+                pass
+
+            # apply auto-range and remember last export if present
+            try:
+                self.auto_range_check.setChecked(bool(auto_range))
+            except Exception:
+                pass
+            try:
+                if last_export:
+                    self._last_export_path = last_export
             except Exception:
                 pass
 
@@ -953,9 +946,8 @@ class WaveformDisplay(QWidget):
                         try:
                             self.controller.select_signal(sid)
                             # add plot in the same order
-                            self.waveform_widget.add_signal_plot(
-                                sid, self.controller.signal_manager.get_signal_info(sid)
-                            )
+                            info = self.controller.signal_manager.get_signal_info(sid)
+                            self.waveform_widget.add_signal_plot(sid, info)
                         except Exception:
                             pass
 
@@ -967,6 +959,21 @@ class WaveformDisplay(QWidget):
 
         except Exception:
             logger.exception("加载 WaveformDisplay 设置失败")
+
+    # Helpers: resolve SettingsDialog class (palette I/O centralized in dialog)
+    def _get_settings_dialog_cls(self):
+        """Return the SettingsDialog class if available, trying import if needed."""
+        if getattr(self, "_settings_dialog_cls", None):
+            return self._settings_dialog_cls
+        try:
+            from gui.settings_dialog import SettingsDialog
+
+            self._settings_dialog_cls = SettingsDialog
+            return SettingsDialog
+        except Exception:
+            return None
+
+    # Palette IO is centralized in `SettingsDialog`; helpers were removed
 
     def _on_thumb_clicked(self):
         """Generate a small thumbnail snapshot of the current plot."""
