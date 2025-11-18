@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 from PySide6.QtCore import QSettings
+import json
 import logging
 
 logger = logging.getLogger("SettingsDialog")
@@ -59,9 +60,14 @@ class SettingsDialog(QDialog):
         self.export_btn = QPushButton("Export Selected")
         self.import_btn = QPushButton("Import From File")
         self.restore_defaults_btn = QPushButton("Restore Recommended Defaults")
+        # palette IO buttons
+        self.export_palette_btn = QPushButton("Export Palette")
+        self.import_palette_btn = QPushButton("Import Palette")
         io_area.addWidget(self.export_btn)
         io_area.addWidget(self.import_btn)
         io_area.addWidget(self.restore_defaults_btn)
+        io_area.addWidget(self.export_palette_btn)
+        io_area.addWidget(self.import_palette_btn)
         layout.addLayout(io_area)
 
         self.reset_btn.clicked.connect(self._on_reset_clicked)
@@ -69,6 +75,80 @@ class SettingsDialog(QDialog):
         self.export_btn.clicked.connect(self._on_export_clicked)
         self.import_btn.clicked.connect(self._on_import_clicked)
         self.restore_defaults_btn.clicked.connect(self._on_restore_defaults_clicked)
+        self.export_palette_btn.clicked.connect(self._on_export_palette_clicked)
+        self.import_palette_btn.clicked.connect(self._on_import_palette_clicked)
+
+    # Palette IO helpers exposed for programmatic access
+    @staticmethod
+    def save_palette_to_settings(mapping: dict):
+        try:
+            settings = QSettings()
+            settings.beginGroup("WaveformDisplay")
+            settings.setValue("palette", json.dumps(mapping, ensure_ascii=False))
+            settings.endGroup()
+            try:
+                settings.sync()
+            except Exception:
+                pass
+            return True
+        except Exception:
+            logger.exception("Failed to save palette to settings")
+            return False
+
+    @staticmethod
+    def load_palette_from_settings() -> dict:
+        try:
+            settings = QSettings()
+            settings.beginGroup("WaveformDisplay")
+            raw = settings.value("palette", "") or ""
+            settings.endGroup()
+            if not raw:
+                return {}
+            try:
+                mapping = json.loads(raw)
+                return mapping or {}
+            except Exception:
+                return {}
+        except Exception:
+            logger.exception("Failed to load palette from settings")
+            return {}
+
+    @staticmethod
+    def export_palette_to_file(mapping: dict = None, parent=None) -> bool:
+        try:
+            if mapping is None:
+                mapping = SettingsDialog.load_palette_from_settings()
+            path, _ = QFileDialog.getSaveFileName(
+                parent, "Export palette", "palette.json", "JSON 文件 (*.json)"
+            )
+            if not path:
+                return False
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(mapping or {}, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception:
+            logger.exception("Export palette failed")
+            return False
+
+    @staticmethod
+    def import_palette_from_file(parent=None) -> dict:
+        try:
+            path, _ = QFileDialog.getOpenFileName(
+                parent, "Import palette", "", "JSON 文件 (*.json)"
+            )
+            if not path:
+                return {}
+            with open(path, "r", encoding="utf-8") as f:
+                mapping = json.load(f)
+            # write into settings as well
+            try:
+                SettingsDialog.save_palette_to_settings(mapping)
+            except Exception:
+                pass
+            return mapping or {}
+        except Exception:
+            logger.exception("Import palette failed")
+            return {}
 
     def _on_reset_clicked(self):
         chosen = []

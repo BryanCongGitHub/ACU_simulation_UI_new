@@ -1,6 +1,14 @@
+import sys
+from pathlib import Path
+
 from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog
 from PySide6.QtCore import QSettings
 import pytest
+
+# ensure project root is on sys.path so tests can import top-level packages
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture(scope="session", autouse=True)

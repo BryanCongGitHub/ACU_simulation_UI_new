@@ -252,12 +252,19 @@ class WaveformDisplay(QWidget):
         self.grid_btn.clicked.connect(self._on_grid_toggled)
         # palette handlers
         try:
-            self.save_palette_btn.clicked.connect(self._on_save_palette)
-            self.load_palette_btn.clicked.connect(self._on_load_palette)
-            self.export_palette_btn.clicked.connect(self._on_export_palette)
-            self.import_palette_btn.clicked.connect(self._on_import_palette)
+            # Palette IO moved to SettingsDialog helpers
+            from gui.settings_dialog import SettingsDialog
+
+            # Move palette IO UI into SettingsDialog: toolbar buttons open dialog
+            self.save_palette_btn.clicked.connect(self._open_settings_dialog)
+            self.load_palette_btn.clicked.connect(self._open_settings_dialog)
+            self.export_palette_btn.clicked.connect(self._open_settings_dialog)
+            self.import_palette_btn.clicked.connect(self._open_settings_dialog)
+            # keep reference for programmatic calls if needed
+            self._settings_dialog_cls = SettingsDialog
         except Exception:
-            pass
+            # fall back to existing handlers if import fails
+            self._settings_dialog_cls = None
 
     def on_record_toggled(self, checked):
         """记录按钮切换"""
@@ -583,18 +590,28 @@ class WaveformDisplay(QWidget):
             curves = getattr(self.waveform_widget, "curves", {})
             mapping = {}
             for sid, info in curves.items():
-                # ensure keys are strings for storage
                 try:
                     mapping[str(sid)] = info.get("color") or "#000000"
                 except Exception:
                     mapping[str(sid)] = "#000000"
 
-            settings = QSettings()
-            settings.beginGroup("WaveformDisplay")
-            settings.setValue("palette", json.dumps(mapping, ensure_ascii=False))
-            settings.endGroup()
-            settings.sync()
-            QMessageBox.information(self, "配色", "配色已保存")
+            if getattr(self, "_settings_dialog_cls", None):
+                ok = self._settings_dialog_cls.save_palette_to_settings(mapping)
+                if ok:
+                    QMessageBox.information(self, "配色", "配色已保存")
+                else:
+                    QMessageBox.critical(self, "配色", "保存配色失败")
+            else:
+                # fallback
+                settings = QSettings()
+                settings.beginGroup("WaveformDisplay")
+                settings.setValue("palette", json.dumps(mapping, ensure_ascii=False))
+                settings.endGroup()
+                try:
+                    settings.sync()
+                except Exception:
+                    pass
+                QMessageBox.information(self, "配色", "配色已保存")
         except Exception:
             logger.exception("保存配色失败")
             QMessageBox.critical(self, "配色", "保存配色失败")
@@ -602,32 +619,31 @@ class WaveformDisplay(QWidget):
     def _on_load_palette(self):
         """Load palette mapping from QSettings and apply colors to existing curves."""
         try:
-            settings = QSettings()
-            settings.beginGroup("WaveformDisplay")
-            raw = settings.value("palette", "") or ""
-            settings.endGroup()
-            if not raw:
+            if getattr(self, "_settings_dialog_cls", None):
+                mapping = self._settings_dialog_cls.load_palette_from_settings()
+            else:
+                settings = QSettings()
+                settings.beginGroup("WaveformDisplay")
+                raw = settings.value("palette", "") or ""
+                settings.endGroup()
+                try:
+                    mapping = json.loads(raw) if raw else {}
+                except Exception:
+                    mapping = {}
+
+            if not mapping:
                 QMessageBox.information(self, "配色", "未找到已保存的配色")
                 return
-            try:
-                mapping = json.loads(raw)
-            except Exception:
-                mapping = {}
 
-            # apply mapping to existing curves
             for k, v in (mapping or {}).items():
                 try:
-                    # try both str and original type
-                    sid = k
-                    self.waveform_widget.set_curve_color(sid, v)
+                    self.waveform_widget.set_curve_color(k, v)
                 except Exception:
                     try:
-                        # maybe original ids are ints
                         self.waveform_widget.set_curve_color(int(k), v)
                     except Exception:
                         pass
 
-            # rebuild legend to reflect colors
             try:
                 self._rebuild_legend()
             except Exception:
@@ -645,17 +661,23 @@ class WaveformDisplay(QWidget):
             mapping = {
                 str(sid): info.get("color") or "#000000" for sid, info in curves.items()
             }
-
-            path, _ = QFileDialog.getSaveFileName(
-                self, "导出配色", "palette.json", "JSON 文件 (*.json)"
-            )
-            if not path:
-                return
-
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(mapping, f, ensure_ascii=False, indent=2)
-
-            QMessageBox.information(self, "配色", f"配色已导出: {path}")
+            if getattr(self, "_settings_dialog_cls", None):
+                ok = self._settings_dialog_cls.export_palette_to_file(
+                    mapping, parent=self
+                )
+                if ok:
+                    QMessageBox.information(self, "配色", "配色已导出")
+                else:
+                    QMessageBox.information(self, "配色", "导出已取消或失败")
+            else:
+                path, _ = QFileDialog.getSaveFileName(
+                    self, "导出配色", "palette.json", "JSON 文件 (*.json)"
+                )
+                if not path:
+                    return
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(mapping, f, ensure_ascii=False, indent=2)
+                QMessageBox.information(self, "配色", f"配色已导出: {path}")
         except Exception:
             logger.exception("导出配色失败")
             QMessageBox.critical(self, "配色", "导出配色失败")
@@ -663,18 +685,22 @@ class WaveformDisplay(QWidget):
     def _on_import_palette(self):
         """Import a palette JSON file and apply it to existing curves."""
         try:
-            path, _ = QFileDialog.getOpenFileName(
-                self, "导入配色", "", "JSON 文件 (*.json)"
-            )
-            if not path:
-                return
-
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    mapping = json.load(f)
-            except Exception:
-                QMessageBox.critical(self, "配色", "无法读取或解析配色文件")
-                return
+            if getattr(self, "_settings_dialog_cls", None):
+                mapping = self._settings_dialog_cls.import_palette_from_file(
+                    parent=self
+                )
+            else:
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "导入配色", "", "JSON 文件 (*.json)"
+                )
+                if not path:
+                    return
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        mapping = json.load(f)
+                except Exception:
+                    QMessageBox.critical(self, "配色", "无法读取或解析配色文件")
+                    return
 
             for k, v in (mapping or {}).items():
                 try:
@@ -713,6 +739,19 @@ class WaveformDisplay(QWidget):
                 self.waveform_widget._grid_on = True
         except Exception:
             pass
+
+    def _open_settings_dialog(self):
+        """Open the centralized SettingsDialog where palette IO is managed."""
+        try:
+            if getattr(self, "_settings_dialog_cls", None):
+                dlg = self._settings_dialog_cls(self)
+                dlg.exec()
+        except Exception:
+            # fallback: no settings dialog available
+            try:
+                QMessageBox.information(self, "设置", "无法打开设置对话框")
+            except Exception:
+                pass
 
     def on_data_updated(self):
         """统一数据更新"""
