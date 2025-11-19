@@ -24,7 +24,8 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '0'
 $oldPytestAddopts = $env:PYTEST_ADDOPTS
 if ([string]::IsNullOrEmpty($oldPytestAddopts)) {
     $env:PYTEST_ADDOPTS = '-p pytestqt.plugin'
-} else {
+}
+else {
     $env:PYTEST_ADDOPTS = "$oldPytestAddopts -p pytestqt.plugin"
 }
 try {
