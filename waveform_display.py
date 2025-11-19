@@ -408,7 +408,7 @@ class WaveformDisplay(QWidget):
 
                 fieldnames = ["timestamp"] + display_names
 
-                with open(path, "w", newline="", encoding="utf-8") as f:
+                with open(path, "w", newline="", encoding="utf-8-sig") as f:
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     for r in rows:
@@ -446,6 +446,7 @@ class WaveformDisplay(QWidget):
 
     def on_auto_range_toggled(self, checked):
         """自动范围切换"""
+        self.waveform_widget.set_auto_y_enabled(bool(checked))
         if checked:
             self.waveform_widget.auto_range()
 
@@ -829,6 +830,8 @@ class WaveformDisplay(QWidget):
 
         # 更新所有绘图
         self.waveform_widget.update_all_plots()
+        if self.auto_range_check.isChecked():
+            self.waveform_widget.auto_range()
 
     def add_send_data(self, data_buffer, timestamp=None):
         """添加发送数据（供外部调用）"""
@@ -936,20 +939,32 @@ class WaveformDisplay(QWidget):
                 # the saved order; otherwise, fall back to sel order.
                 apply_order = signal_order if signal_order else sel
 
-                for sid in apply_order:
-                    item = lookup.get(str(sid))
-                    if item is not None:
-                        # set checked state without triggering selection logic twice
-                        block = item.blockSignals(True)
-                        item.setCheckState(0, Qt.Checked)
-                        item.blockSignals(block)
-                        try:
-                            self.controller.select_signal(sid)
-                            # add plot in the same order
-                            info = self.controller.signal_manager.get_signal_info(sid)
-                            self.waveform_widget.add_signal_plot(sid, info)
-                        except Exception:
-                            pass
+                # Block tree signals while restoring to avoid itemChanged handlers.
+                try:
+                    self.signal_tree.blockSignals(True)
+                except Exception:
+                    pass
+
+                try:
+                    for sid in apply_order:
+                        item = lookup.get(str(sid))
+                        if item is not None:
+                            # set checked state; tree signals are blocked
+                            item.setCheckState(0, Qt.Checked)
+                            try:
+                                self.controller.select_signal(sid)
+                                # add plot in the same order
+                                info = self.controller.signal_manager.get_signal_info(
+                                    sid
+                                )
+                                self.waveform_widget.add_signal_plot(sid, info)
+                            except Exception:
+                                pass
+                finally:
+                    try:
+                        self.signal_tree.blockSignals(False)
+                    except Exception:
+                        pass
 
             # try to restore saved palette/colors if any
             try:

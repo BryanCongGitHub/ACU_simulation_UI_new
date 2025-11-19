@@ -32,6 +32,7 @@ class WaveformPlotWidget(QWidget):
         self.current_time_range = 600
         self.last_plt_update = 0
         self.max_display_points = 1000
+        self._auto_y_enabled = True
         self.init_ui()
 
     def init_ui(self):
@@ -325,7 +326,8 @@ class WaveformPlotWidget(QWidget):
                 logger.error(f"更新信号 {signal_id} 失败: {e}")
 
         # 自动调整Y轴范围
-        self._auto_adjust_y_range()
+        if self._auto_y_enabled:
+            self._auto_adjust_y_range()
 
         # 更新X轴范围
         if display_times:
@@ -344,45 +346,41 @@ class WaveformPlotWidget(QWidget):
             return
 
         # 检查信号类型
-        has_bool = any(
-            curve_info["type"] == "bool" for curve_info in self.curves.values()
-        )
-        has_analog = any(
-            curve_info["type"] != "bool" for curve_info in self.curves.values()
-        )
+        has_bool = False
+        analog_values = []
+        for signal_id, curve_info in self.curves.items():
+            if curve_info["type"] == "bool":
+                has_bool = True
+                continue
+            values = self.controller.get_signal_data(signal_id)
+            if values:
+                recent_values = values[-50:] if len(values) > 50 else values
+                analog_values.extend(recent_values)
 
-        if has_bool and not has_analog:
+        if analog_values:
+            min_val = min(analog_values)
+            max_val = max(analog_values)
+
+            if abs(max_val - min_val) < 0.01:
+                center = (min_val + max_val) / 2
+                min_range = center - 1
+                max_range = center + 1
+            else:
+                span = max_val - min_val
+                margin = max(span * 0.1, 0.1)
+                min_range = min_val - margin
+                max_range = max_val + margin
+
+            if has_bool:
+                min_range = min(min_range, -0.2)
+                max_range = max(max_range, 1.2)
+
+            self.main_plot.setYRange(min_range, max_range)
+        elif has_bool:
             # 只有布尔信号
             self.main_plot.setYRange(-0.2, 1.2)
-
-        elif has_analog and not has_bool:
-            # 只有模拟信号
-            all_values = []
-            for signal_id, curve_info in self.curves.items():
-                if curve_info["type"] != "bool":
-                    values = self.controller.get_signal_data(signal_id)
-                    if values and len(values) > 0:
-                        # 取最近的数据点
-                        recent_values = values[-50:] if len(values) > 50 else values
-                        all_values.extend(recent_values)
-
-            if all_values:
-                min_val = min(all_values)
-                max_val = max(all_values)
-
-                if abs(max_val - min_val) < 0.01:
-                    # 数据基本不变，设置固定范围
-                    center = (min_val + max_val) / 2
-                    self.main_plot.setYRange(center - 1, center + 1)
-                else:
-                    margin = max((max_val - min_val) * 0.1, 0.1)
-                    self.main_plot.setYRange(min_val - margin, max_val + margin)
-            else:
-                self.main_plot.setYRange(0, 100)
-
         else:
-            # 混合信号
-            self.main_plot.setYRange(-1, 100)
+            self.main_plot.setYRange(0, 100)
 
     def set_time_range(self, seconds):
         """设置时间显示范围"""
@@ -403,7 +401,13 @@ class WaveformPlotWidget(QWidget):
 
     def auto_range(self):
         """自动调整范围"""
+        if not self._auto_y_enabled:
+            return
         self._auto_adjust_y_range()
+
+    def set_auto_y_enabled(self, enabled: bool):
+        """Enable or disable automatic Y range updates."""
+        self._auto_y_enabled = bool(enabled)
 
     def clear_plots(self):
         """清空所有绘图"""
