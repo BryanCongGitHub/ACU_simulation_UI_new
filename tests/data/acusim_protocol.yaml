@@ -1,0 +1,54 @@
+# Sample payload metadata used by template protocol regression tests.
+
+category_frames:
+	INV:
+		life_signal: 1234
+		software_code: 4321
+		software_version: 7
+		output_frequency_hz: 30.5
+		currents_amps: [50.0, 30.0, 20.0]
+		input_voltage_volts: 100.0
+		ipm_temperature_c: 35.0
+		status_flags:
+			- 工作允许反馈
+			- 工作中状态反馈
+			- 总故障反馈
+		faults:
+			- 模块A相管保护
+			- 模块B相管保护
+			- 模块输出短路过流
+			- 模块输出三相不平衡
+			- 模块输出1.5倍过载
+			- Fuse熔断
+			- 生命信号故障
+	CHU:
+		inherits: INV
+		status_flags:
+			- 工作允许反馈
+			- 工作中状态反馈
+			- 隔离及锁定反馈
+			- 总故障反馈
+			- 斩波器准备完成
+	BCC:
+		life_signal: 1234
+		software_code: 4321
+		software_version: 7
+		output_voltage_volts: 55.0
+		output_current_amps: 45.0
+		charge_current_amps: 40.0
+		battery_temperature_c: 25.0
+		module_temperature_c: 48.0
+		status_flags:
+			- 工作允许反馈
+			- 工作中状态反馈
+			- 隔离及锁定反馈
+			- 总故障反馈
+			- 均衡充电模式状态
+		faults:
+			- 蓄电池充电过流
+			- 模块管保护
+			- 输入熔断器故障
+			- 蓄电池温度过高
+			- 蓄电池温度传感器故障
+			- 模块温度传感器故障
+			- 模块过温

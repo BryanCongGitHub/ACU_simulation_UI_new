@@ -2,6 +2,8 @@ import time
 from model.control_state import ControlState
 from model.device import Device
 from model.protocols.inv_protocol import InvLikeProtocol
+from protocols.template_runtime.loader import load_template_protocol
+from protocols.template_runtime.schema import TemplateConfigError
 
 
 class FrameBuilder:
@@ -10,8 +12,11 @@ class FrameBuilder:
     def __init__(self, control_state: ControlState, acu_device: Device):
         self.control_state = control_state
         self.acu_device = acu_device
-        # 当前实现中仅一个协议类型（INV_LIKE），可未来扩展
-        self.protocol = InvLikeProtocol("INV")
+        # 当前实现中默认走模板协议，若模板不可用则回退到旧实现
+        try:
+            self.protocol = load_template_protocol("INV")
+        except (FileNotFoundError, TemplateConfigError):
+            self.protocol = InvLikeProtocol("INV")
 
     def build(self) -> bytearray:
         snapshot = self.control_state.snapshot()

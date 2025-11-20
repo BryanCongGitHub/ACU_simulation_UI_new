@@ -8,3 +8,4 @@ mypy
 black
 flake8
 pre-commit
+PyYAML

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import copy
 import queue
 import time
 from datetime import datetime
-from collections import OrderedDict, defaultdict, deque
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from collections import deque
+from typing import Any, Deque, Dict, List, Tuple
 from pathlib import Path
 import logging
 
@@ -52,21 +51,61 @@ from PySide6.QtCore import (
 from waveform_display import WaveformDisplay
 from views.event_bus import ViewEventBus
 from gui.settings_dialog import SettingsDialog
-from gui.protocol_field_browser import ProtocolFieldBrowser
 
 from controllers.communication_controller import CommunicationController
 from controllers.parse_controller import ParseController
 from controllers.frame_builder import FrameBuilder
-from controllers.protocol_field_service import (
-    ProtocolFieldService,
-    SendFieldInfo,
-)
 from model.control_state import ControlState
 from model.device import Device, DeviceConfig
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "acu_config.json"
 logger = logging.getLogger("ACUSim")
+
+SEND_BOOL_COMMANDS: List[Tuple[str, Tuple[int, int]]] = [
+    ("鍧囪　鍏呯數妯″紡", (8, 0)),
+    ("鍋滄宸ヤ綔", (8, 1)),
+    ("棰勫彂杞︽祴璇?", (8, 2)),
+    ("DCDC3闅旂", (8, 6)),
+    ("DCDC4闅旂", (8, 7)),
+    ("鏁呴殰澶嶄綅", (9, 0)),
+    ("绌哄帇鏈?鍚姩", (9, 1)),
+    ("绌哄帇鏈?鍚姩", (9, 2)),
+]
+
+SEND_ISOLATION_COMMANDS: List[Tuple[str, int]] = [
+    ("INV1闅旂", 0),
+    ("INV2闅旂", 1),
+    ("INV3闅旂", 2),
+    ("INV4闅旂", 3),
+    ("INV5闅旂", 4),
+    ("INV6闅旂", 5),
+]
+
+SEND_START_COMMANDS: List[Tuple[str, int]] = [
+    ("INV1鍚姩", 0),
+    ("INV2鍚姩", 1),
+    ("INV3鍚姩", 2),
+    ("INV4鍚姩", 3),
+    ("INV5鍚姩", 4),
+    ("INV6鍚姩", 5),
+]
+
+SEND_FREQ_CONTROLS: List[Tuple[str, int]] = [
+    ("INV2棰戠巼", 10),
+    ("INV3棰戠巼", 12),
+    ("INV4棰戠巼", 14),
+    ("INV5棰戠巼", 16),
+]
+
+SEND_START_TIME_FIELDS: List[Tuple[str, int]] = [
+    ("鍚姩淇濇寔鏃堕棿(瀛楄妭142)", 142),
+]
+
+SEND_BRANCH_VOLT_FIELDS: List[Tuple[str, int]] = [
+    ("鏀矾鐢靛帇1(瀛楄妭154)", 154),
+    ("鏀矾鐢靛帇2(瀛楄妭156)", 156),
+]
 
 ParseTask = Tuple[bytes, str, int, str]
 RecordDict = Dict[str, Any]
@@ -141,7 +180,7 @@ class ParseWorker(QObject):
                     "address": address,
                     "device_type": "ERROR",
                     "data_length": len(data),
-                    "parsed_data": {"错误": str(exc)},
+                    "parsed_data": {"閿欒": str(exc)},
                 }
                 self.parse_result.emit(error_record)
             loops += 1
@@ -284,18 +323,6 @@ class ACUSimulator(QMainWindow):
         self._control_state_model = getattr(self._frame_builder, "control_state", cs)
         self._acu_device = getattr(self._frame_builder, "acu_device", dev)
 
-        # Protocol field metadata & preferences
-        self._protocol_field_service = ProtocolFieldService()
-        self._protocol_field_prefs = (
-            self._protocol_field_service.get_active_preferences()
-        )
-        self._send_field_infos = self._protocol_field_service.send_field_infos()
-        self._receive_field_infos = self._protocol_field_service.receive_field_infos()
-        self._send_field_widgets: Dict[str, QWidget] = {}
-        self._receive_selection_cache: Dict[str, set[str]] = {}
-        self._common_receive_selection: set[str] = set()
-        self._update_receive_selection_cache()
-
         self.memory_check_timer = QTimer()
         self.memory_check_interval = 10000
         self.last_memory_check = time.time()
@@ -310,11 +337,10 @@ class ACUSimulator(QMainWindow):
         self._setup_workers()
 
     def _rebuild_tick(self):
-        """分块填充表格的定时器回调
+        """鍒嗗潡濉厖琛ㄦ牸鐨勫畾鏃跺櫒鍥炶皟
 
-        在 UI 线程中分块将大量解析记录加入到 `parse_table_buffer`，以
-        避免一次性填充阻塞 UI。保持实现轻量以满足测试依赖。
-        """
+        鍦?UI 绾跨▼涓垎鍧楀皢澶ч噺瑙ｆ瀽璁板綍鍔犲叆鍒?`parse_table_buffer`锛屼互
+        閬垮厤涓€娆℃€у～鍏呴樆濉?UI銆備繚鎸佸疄鐜拌交閲忎互婊¤冻娴嬭瘯渚濊禆銆?        """
         if not getattr(self, "_rebuild_in_progress", False):
             return
 
@@ -353,7 +379,7 @@ class ACUSimulator(QMainWindow):
 
         This creates a small set of widgets referenced by the logic (spinbox,
         control buttons and a status label). The full visual layout is not
-        necessary for tests — only the attributes and basic signal wiring.
+        necessary for tests 鈥?only the attributes and basic signal wiring.
         """
         central = QWidget(self)
         layout = QVBoxLayout(central)
@@ -538,7 +564,7 @@ class ACUSimulator(QMainWindow):
         if not hasattr(self, "send_data_buffer"):
             self.send_data_buffer = bytearray(320)
 
-    def _show_error(self, message: str, title: str = "错误"):
+    def _show_error(self, message: str, title: str = "閿欒"):
         """Show an error message to the user if dialogs are enabled.
 
         This is guarded by `self._enable_dialogs` so tests/CI can run
@@ -661,7 +687,7 @@ class ACUSimulator(QMainWindow):
                 except Exception:
                     pass
             try:
-                self._show_info("设备配置已保存。", "信息")
+                self._show_info("璁惧閰嶇疆宸蹭繚瀛樸€?, "淇℃伅")
             except Exception:
                 pass
         except Exception:
@@ -698,8 +724,8 @@ class ACUSimulator(QMainWindow):
             if invalid:
                 # Inform user about invalid fields and abort apply
                 self._show_error(
-                    f"端口无效或超出范围: {', '.join(invalid)} (应为 1-65535)",
-                    title="配置错误",
+                    f"绔彛鏃犳晥鎴栬秴鍑鸿寖鍥? {', '.join(invalid)} (搴斾负 1-65535)",
+                    title="閰嶇疆閿欒",
                 )
                 return False
 
@@ -712,15 +738,15 @@ class ACUSimulator(QMainWindow):
                     target_ip=target_ip,
                     target_receive_port=target_receive_port,
                 )
-                self._show_info("设备配置已应用。", "信息")
+                self._show_info("璁惧閰嶇疆宸插簲鐢ㄣ€?, "淇℃伅")
                 return True
             except Exception as exc:
                 logger.exception("Applying device config failed")
-                self._show_error(f"应用设备配置失败: {exc}")
+                self._show_error(f"搴旂敤璁惧閰嶇疆澶辫触: {exc}")
                 return False
         except Exception as exc:
             logger.exception("_on_device_apply unexpected error")
-            self._show_error(f"应用失败: {exc}")
+            self._show_error(f"搴旂敤澶辫触: {exc}")
             return False
 
     def restore_device_defaults(self):
@@ -764,7 +790,7 @@ class ACUSimulator(QMainWindow):
                 pass
 
             try:
-                self._show_info("已恢复设备配置到默认值。", "信息")
+                self._show_info("宸叉仮澶嶈澶囬厤缃埌榛樿鍊笺€?, "淇℃伅")
             except Exception:
                 pass
         except Exception:
@@ -781,25 +807,16 @@ class ACUSimulator(QMainWindow):
     def _init_sidebar_dock(self, legacy_left_panel: QWidget):
         """Create left sidebar dock with navigation + stacked pages.
 
-        Pages: 设备设置 / 发送配置 / 接收数据 / 解析表头 / 日志
+        Pages: 璁惧璁剧疆 / 鍙戦€侀厤缃?/ 鎺ユ敹鏁版嵁 / 瑙ｆ瀽琛ㄥご / 鏃ュ織
         """
         sidebar_container = QWidget()
         container_layout = QHBoxLayout(sidebar_container)
         container_layout.setContentsMargins(4, 4, 4, 4)
         container_layout.setSpacing(6)
 
-        if legacy_left_panel is not None:
-            legacy_left_panel.setParent(None)
-            device_page = QWidget()
-            device_layout = QVBoxLayout(device_page)
-            device_layout.setContentsMargins(0, 0, 0, 0)
-            device_layout.addWidget(legacy_left_panel)
-        else:
-            device_page = QWidget()
-
         self.sidebar_nav = QListWidget()
         self.sidebar_nav.addItems(
-            ["设备设置", "发送配置", "协议字段", "接收数据", "解析表头", "日志"]
+            ["璁惧璁剧疆", "鍙戦€侀厤缃?, "鎺ユ敹鏁版嵁", "瑙ｆ瀽琛ㄥご", "鏃ュ織"]
         )
         self.sidebar_nav.setMinimumWidth(70)
         self.sidebar_nav.setMaximumWidth(140)
@@ -807,55 +824,213 @@ class ACUSimulator(QMainWindow):
 
         self.sidebar_pages = QStackedWidget()
         container_layout.addWidget(self.sidebar_pages, 1)
-        # Page 2: 发送配置（配置发送数据内容）
+
+        # Page 1: 璁惧璁剧疆锛堝寘鍚彂閫佹帶鍒讹級
+        device_page = QWidget()
+        device_layout = QVBoxLayout(device_page)
+        try:
+            device_layout.addWidget(self.device_group)
+        except Exception:
+            device_layout.addWidget(self._rebuild_device_group())
+        try:
+            status_container = QWidget()
+            status_layout = QHBoxLayout(status_container)
+            status_layout.setContentsMargins(0, 0, 0, 0)
+            status_layout.setSpacing(6)
+            self.comm_status_indicator = QLabel()
+            self.comm_status_indicator.setFixedSize(14, 14)
+            self.comm_status_indicator.setStyleSheet(
+                "border-radius:7px; border:1px solid #666; background-color:#999;"
+            )
+            status_layout.addWidget(self.comm_status_indicator, alignment=Qt.AlignLeft)
+            status_layout.addWidget(self.status_label, 1)
+            status_layout.addStretch()
+            device_layout.addWidget(status_container)
+        except Exception:
+            try:
+                device_layout.addWidget(self.status_label)
+            except Exception:
+                pass
+
+        # 鍦ㄨ澶囪缃〉涓拷鍔犲彂閫佹帶鍒?        send_controls = QWidget()
+        send_controls.setLayout(QHBoxLayout())
+        send_controls.layout().setContentsMargins(0, 0, 0, 0)
+        for w in [
+            self.period_spin,
+            self.start_btn,
+            self.stop_btn,
+            self.test_btn,
+            self.preview_btn,
+        ]:
+            try:
+                send_controls.layout().addWidget(w)
+            except Exception:
+                pass
+        device_layout.addWidget(send_controls)
+
+        # Page 2: 鍙戦€侀厤缃紙閰嶇疆鍙戦€佹暟鎹唴瀹癸級
         sendcfg_page = QWidget()
         sendcfg_layout = QVBoxLayout(sendcfg_page)
         sendcfg_layout.setSpacing(8)
 
-        self._sendcfg_dynamic_container = QWidget()
-        dynamic_layout = QVBoxLayout(self._sendcfg_dynamic_container)
-        dynamic_layout.setContentsMargins(0, 0, 0, 0)
-        dynamic_layout.setSpacing(8)
-        sendcfg_layout.addWidget(self._sendcfg_dynamic_container)
-        self._build_send_config_groups()
-        # 操作区
-        sc_actions = QWidget()
+        # Prepare storage for send configuration widgets
+        self.sc_bool_boxes: Dict[Tuple[int, int], QCheckBox] = {}
+        self.sc_isolation_checkboxes: Dict[int, QCheckBox] = {}
+        self.sc_start_checkboxes: Dict[int, QCheckBox] = {}
+        self.sc_freq_spinboxes: Dict[int, QDoubleSpinBox] = {}
+        self.sc_start_time_spinboxes: Dict[int, QSpinBox] = {}
+        self.sc_branch_spinboxes: Dict[int, QDoubleSpinBox] = {}
+
+        if SEND_BOOL_COMMANDS:
+            bool_group = QGroupBox("鍩烘湰鎺у埗鍛戒护")
+            bool_layout = QGridLayout()
+            bool_layout.setContentsMargins(8, 8, 8, 8)
+            for idx, (label, key) in enumerate(SEND_BOOL_COMMANDS):
+                chk = QCheckBox(label)
+                chk.setChecked(
+                    bool(self._control_state_model.bool_commands.get(key, False))
+                )
+                row = idx // 2
+                col = idx % 2
+                bool_layout.addWidget(chk, row, col)
+                self.sc_bool_boxes[key] = chk
+            bool_group.setLayout(bool_layout)
+            sendcfg_layout.addWidget(bool_group)
+
+        if SEND_ISOLATION_COMMANDS:
+            iso_group = QGroupBox("闅旂鎸囦护")
+            iso_layout = QGridLayout()
+            iso_layout.setContentsMargins(8, 8, 8, 8)
+            for idx, (label, bit_idx) in enumerate(SEND_ISOLATION_COMMANDS):
+                chk = QCheckBox(label)
+                chk.setChecked(
+                    bool(
+                        self._control_state_model.isolation_commands.get(bit_idx, False)
+                    )
+                )
+                row = idx // 3
+                col = idx % 3
+                iso_layout.addWidget(chk, row, col)
+                self.sc_isolation_checkboxes[bit_idx] = chk
+            iso_group.setLayout(iso_layout)
+            sendcfg_layout.addWidget(iso_group)
+
+        if SEND_START_COMMANDS:
+            start_group = QGroupBox("鍚姩鎸囦护")
+            start_layout = QGridLayout()
+            start_layout.setContentsMargins(8, 8, 8, 8)
+            for idx, (label, bit_idx) in enumerate(SEND_START_COMMANDS):
+                chk = QCheckBox(label)
+                chk.setChecked(
+                    bool(self._control_state_model.start_commands.get(bit_idx, False))
+                )
+                row = idx // 3
+                col = idx % 3
+                start_layout.addWidget(chk, row, col)
+                self.sc_start_checkboxes[bit_idx] = chk
+            start_group.setLayout(start_layout)
+            sendcfg_layout.addWidget(start_group)
+            self.sc_start_chk = self.sc_start_checkboxes.get(0)
+
+        if SEND_FREQ_CONTROLS:
+            freq_group = QGroupBox("棰戠巼鎺у埗 (Hz)")
+            freq_form = QFormLayout()
+            for label, byte_pos in SEND_FREQ_CONTROLS:
+                spin = QDoubleSpinBox()
+                spin.setDecimals(1)
+                spin.setRange(0.0, 4000.0)
+                spin.setSingleStep(0.1)
+                spin.setValue(
+                    float(self._control_state_model.freq_controls.get(byte_pos, 0.0))
+                )
+                freq_form.addRow(label, spin)
+                self.sc_freq_spinboxes[byte_pos] = spin
+            freq_group.setLayout(freq_form)
+            sendcfg_layout.addWidget(freq_group)
+            first_freq = SEND_FREQ_CONTROLS[0][1] if SEND_FREQ_CONTROLS else None
+            self.sc_freq_spin = (
+                self.sc_freq_spinboxes.get(first_freq)
+                if first_freq is not None
+                else None
+            )
+
+        if SEND_START_TIME_FIELDS:
+            start_time_group = QGroupBox("鍚姩鏃堕棿 (绉?")
+            start_time_form = QFormLayout()
+            for label, byte_pos in SEND_START_TIME_FIELDS:
+                spin = QSpinBox()
+                spin.setRange(0, 600)
+                spin.setValue(
+                    int(self._control_state_model.start_times.get(byte_pos, 0))
+                )
+                start_time_form.addRow(label, spin)
+                self.sc_start_time_spinboxes[byte_pos] = spin
+            start_time_group.setLayout(start_time_form)
+            sendcfg_layout.addWidget(start_time_group)
+
+        if SEND_BRANCH_VOLT_FIELDS:
+            branch_group = QGroupBox("鏀矾鐢靛帇 (V)")
+            branch_form = QFormLayout()
+            for label, byte_pos in SEND_BRANCH_VOLT_FIELDS:
+                spin = QDoubleSpinBox()
+                spin.setDecimals(1)
+                spin.setRange(0.0, 800.0)
+                spin.setSingleStep(0.5)
+                spin.setValue(
+                    float(self._control_state_model.branch_voltages.get(byte_pos, 0.0))
+                )
+                branch_form.addRow(label, spin)
+                self.sc_branch_spinboxes[byte_pos] = spin
+            branch_group.setLayout(branch_form)
+            sendcfg_layout.addWidget(branch_group)
+
+        env_group = QGroupBox("鐜鍙傛暟")
+        env_form = QFormLayout()
+        self.sc_battery_temp_spin = QSpinBox()
+        self.sc_battery_temp_spin.setRange(-40, 125)
+        self.sc_battery_temp_spin.setValue(
+            int(getattr(self._control_state_model, "battery_temp", 25))
+        )
+        env_form.addRow("鐢垫睜娓╁害(掳C)", self.sc_battery_temp_spin)
+        env_group.setLayout(env_form)
+        self.sc_temp_spin = self.sc_battery_temp_spin
+        sendcfg_layout.addWidget(env_group)
+        # 鎿嶄綔鍖?        sc_actions = QWidget()
         sc_actions.setLayout(QHBoxLayout())
-        self.sc_apply_btn = QPushButton("应用到发送状态")
-        self.sc_preview_btn = QPushButton("生成预览")
+        self.sc_apply_btn = QPushButton("搴旂敤鍒板彂閫佺姸鎬?)
+        self.sc_preview_btn = QPushButton("鐢熸垚棰勮")
         sc_actions.layout().addWidget(self.sc_apply_btn)
         sc_actions.layout().addWidget(self.sc_preview_btn)
         sendcfg_layout.addWidget(sc_actions)
-        # 预览区域
+        # 棰勮鍖哄煙
         self.sc_preview_edit = QPlainTextEdit()
         self.sc_preview_edit.setReadOnly(True)
-        self.sc_preview_edit.setPlaceholderText("发送帧HEX预览")
+        self.sc_preview_edit.setPlaceholderText("鍙戦€佸抚HEX棰勮")
         sendcfg_layout.addWidget(self.sc_preview_edit)
-        # 连接
+        # 杩炴帴
         self.sc_apply_btn.clicked.connect(self._apply_send_config)
         self.sc_preview_btn.clicked.connect(self._preview_send_frame)
 
-        # Page 3: 接收数据（树）
-        recv_page = QWidget()
+        # Page 3: 鎺ユ敹鏁版嵁锛堟爲锛?        recv_page = QWidget()
         recv_layout = QVBoxLayout(recv_page)
         self.recv_tree = QTreeWidget()
-        self.recv_tree.setHeaderLabels(["类别/键", "值"])
+        self.recv_tree.setHeaderLabels(["绫诲埆/閿?, "鍊?])
         self.recv_tree.setColumnCount(2)
         recv_layout.addWidget(self.recv_tree)
 
-        # Page 4: 解析表头
+        # Page 4: 瑙ｆ瀽琛ㄥご
         header_page = QWidget()
         header_layout = QVBoxLayout(header_page)
         header_hint = QLabel(
-            '解析表位于窗口下方的 "解析表" Dock，若未显示，可在菜单中启用。'
+            '瑙ｆ瀽琛ㄤ綅浜庣獥鍙ｄ笅鏂圭殑 "瑙ｆ瀽琛? Dock锛岃嫢鏈樉绀猴紝鍙湪鑿滃崟涓惎鐢ㄣ€?
         )
         header_hint.setWordWrap(True)
         header_layout.addWidget(header_hint)
-        self.chk_col_timestamp = QCheckBox("显示 timestamp")
-        self.chk_col_address = QCheckBox("显示 address")
-        self.chk_col_device = QCheckBox("显示 device_type")
-        self.chk_col_length = QCheckBox("显示 data_length")
-        self.chk_col_parsed = QCheckBox("显示 parsed_data")
+        self.chk_col_timestamp = QCheckBox("鏄剧ず timestamp")
+        self.chk_col_address = QCheckBox("鏄剧ず address")
+        self.chk_col_device = QCheckBox("鏄剧ず device_type")
+        self.chk_col_length = QCheckBox("鏄剧ず data_length")
+        self.chk_col_parsed = QCheckBox("鏄剧ず parsed_data")
         for chk in [
             self.chk_col_timestamp,
             self.chk_col_address,
@@ -879,18 +1054,18 @@ class ACUSimulator(QMainWindow):
         ]:
             chk.toggled.connect(_apply_header_visibility)
 
-        self.parse_table_group = QGroupBox("解析记录")
+        self.parse_table_group = QGroupBox("瑙ｆ瀽璁板綍")
         self.parse_table_group_layout = QVBoxLayout(self.parse_table_group)
         self.parse_table_group_layout.setContentsMargins(0, 8, 0, 0)
         self.parse_table_group_placeholder = QLabel(
-            "解析结果将在此显示。启动通信后可查看最新数据。"
+            "瑙ｆ瀽缁撴灉灏嗗湪姝ゆ樉绀恒€傚惎鍔ㄩ€氫俊鍚庡彲鏌ョ湅鏈€鏂版暟鎹€?
         )
         self.parse_table_group_placeholder.setWordWrap(True)
         self.parse_table_group_layout.addWidget(self.parse_table_group_placeholder)
         header_layout.addWidget(self.parse_table_group)
         header_layout.addStretch(1)
 
-        # Page 5: 日志
+        # Page 5: 鏃ュ織
         log_page = QWidget()
         log_layout = QVBoxLayout(log_page)
         self.log_view = QPlainTextEdit()
@@ -905,18 +1080,6 @@ class ACUSimulator(QMainWindow):
         # Assemble pages
         self.sidebar_pages.addWidget(self._wrap_sidebar_page(device_page))
         self.sidebar_pages.addWidget(self._wrap_sidebar_page(sendcfg_page))
-        self.protocol_field_browser = ProtocolFieldBrowser(
-            self, field_service=self._protocol_field_service
-        )
-        try:
-            self.protocol_field_browser.preferences_changed.connect(
-                self._on_protocol_field_preferences_changed
-            )
-        except Exception:
-            pass
-        self.sidebar_pages.addWidget(
-            self._wrap_sidebar_page(self.protocol_field_browser)
-        )
         self.sidebar_pages.addWidget(self._wrap_sidebar_page(recv_page))
         self.sidebar_pages.addWidget(self._wrap_sidebar_page(header_page))
         self.sidebar_pages.addWidget(self._wrap_sidebar_page(log_page))
@@ -924,7 +1087,7 @@ class ACUSimulator(QMainWindow):
         self.sidebar_nav.setCurrentRow(0)
 
         # Create dock and install container
-        sidebar_dock = QDockWidget("侧边栏", self)
+        sidebar_dock = QDockWidget("渚ц竟鏍?, self)
         sidebar_dock.setObjectName("dock_sidebar")
         sidebar_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         sidebar_dock.setFeatures(
@@ -935,8 +1098,7 @@ class ACUSimulator(QMainWindow):
         )
         sidebar_dock.setWidget(sidebar_container)
         self.addDockWidget(Qt.LeftDockWidgetArea, sidebar_dock)
-        # 分配停靠区域优先级，让侧边栏占据左侧并保留调整手柄
-        try:
+        # 鍒嗛厤鍋滈潬鍖哄煙浼樺厛绾э紝璁╀晶杈规爮鍗犳嵁宸︿晶骞朵繚鐣欒皟鏁存墜鏌?        try:
             self.setDockNestingEnabled(True)
             self.resizeDocks([sidebar_dock], [280], Qt.Horizontal)
             self.setCorner(Qt.TopLeftCorner, Qt.LeftDockWidgetArea)
@@ -945,7 +1107,7 @@ class ACUSimulator(QMainWindow):
             pass
 
         # default indicator state (ensure consistent color)
-        self._set_comm_status_indicator("#999", "通信未启动")
+        self._set_comm_status_indicator("#999", "閫氫俊鏈惎鍔?)
 
     def _wrap_sidebar_page(self, widget: QWidget) -> QScrollArea:
         scroll = QScrollArea()
@@ -953,230 +1115,6 @@ class ACUSimulator(QMainWindow):
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setWidget(widget)
         return scroll
-
-    # ---- Protocol field helpers ----
-    def _build_send_config_groups(self) -> None:
-        container_layout = self._sendcfg_dynamic_container.layout()
-        if container_layout is None:
-            return
-
-        self._clear_layout(container_layout)
-        self._send_field_widgets.clear()
-
-        grouped = self._group_selected_send_fields()
-        if not grouped:
-            placeholder = QLabel("未选择发送字段，请在‘协议字段’页中勾选并保存。")
-            placeholder.setWordWrap(True)
-            container_layout.addWidget(placeholder)
-            return
-
-        for group_title, infos in grouped.items():
-            widget: Optional[QWidget] = None
-            if infos and all(
-                info.kind in {"bool_bitset", "packed_bit"} for info in infos
-            ):
-                widget = self._create_bool_group(group_title, infos)
-            else:
-                widget = self._create_word_group(group_title, infos)
-            if widget is not None:
-                container_layout.addWidget(widget)
-
-    def _group_selected_send_fields(self) -> "OrderedDict[str, List[SendFieldInfo]]":
-        selected = self._protocol_field_prefs.get("send", []) or []
-        grouped: "OrderedDict[str, List[SendFieldInfo]]" = OrderedDict()
-        for key in selected:
-            info = self._send_field_infos.get(key)
-            if info is None:
-                continue
-            grouped.setdefault(info.group_title, []).append(info)
-        for infos in grouped.values():
-            infos.sort(key=lambda item: item.order)
-        return grouped
-
-    def _create_bool_group(
-        self, title: str, infos: List[SendFieldInfo]
-    ) -> Optional[QGroupBox]:
-        if not infos:
-            return None
-        group = QGroupBox(title)
-        layout = QGridLayout()
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(6)
-        columns = 3
-        for idx, info in enumerate(infos):
-            chk = QCheckBox(info.label or info.key)
-            chk.setChecked(self._is_send_field_checked(info))
-            layout.addWidget(chk, idx // columns, idx % columns)
-            self._send_field_widgets[info.key] = chk
-        group.setLayout(layout)
-        return group
-
-    def _create_word_group(
-        self, title: str, infos: List[SendFieldInfo]
-    ) -> Optional[QGroupBox]:
-        if not infos:
-            return None
-        group = QGroupBox(title)
-        form = QFormLayout()
-        form.setContentsMargins(8, 8, 8, 8)
-        for info in infos:
-            widget = self._create_word_widget(info)
-            label = info.label or info.key
-            form.addRow(label, widget)
-            self._send_field_widgets[info.key] = widget
-        group.setLayout(form)
-        return group
-
-    def _create_word_widget(self, info: SendFieldInfo) -> QWidget:
-        value = self._get_send_field_value(info)
-        source = info.source
-
-        if source == "battery_temp":
-            spin = QSpinBox()
-            spin.setRange(-40, 125)
-            spin.setSingleStep(1)
-            spin.setValue(int(value))
-            return spin
-
-        if source == "start_times":
-            spin = QSpinBox()
-            spin.setRange(0, 600)
-            spin.setSingleStep(1)
-            spin.setValue(int(value))
-            return spin
-
-        decimals = 1 if abs(info.scale or 0.0) < 1 else 0
-        spin = QDoubleSpinBox()
-        spin.setDecimals(decimals)
-        spin.setSingleStep(info.scale or 0.5)
-        if source == "freq_controls":
-            spin.setRange(0.0, 4000.0)
-            spin.setSingleStep(0.1)
-        elif source == "branch_voltages":
-            spin.setRange(0.0, 800.0)
-            spin.setSingleStep(0.5)
-        else:
-            spin.setRange(0.0, 10000.0)
-        spin.setValue(float(value))
-        if info.unit:
-            spin.setSuffix(f" {info.unit}")
-        return spin
-
-    def _clear_layout(self, layout) -> None:
-        if layout is None:
-            return
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            child_layout = item.layout()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-            elif child_layout is not None:
-                self._clear_layout(child_layout)
-
-    def _is_send_field_checked(self, info: SendFieldInfo) -> bool:
-        cs = getattr(self, "_control_state_model", None)
-        if cs is None:
-            return False
-        target = getattr(cs, info.source, None)
-        if info.kind == "bool_bitset" and isinstance(target, dict):
-            if info.byte is None or info.bit is None:
-                return False
-            return bool(target.get((info.byte, info.bit)))
-        if info.kind == "packed_bit" and isinstance(target, dict):
-            if info.bit is None:
-                return False
-            return bool(target.get(info.bit))
-        return False
-
-    def _get_send_field_value(self, info: SendFieldInfo) -> float:
-        cs = getattr(self, "_control_state_model", None)
-        if cs is None:
-            return 0.0
-        if info.kind == "scalar_word":
-            return float(getattr(cs, info.source, 0))
-        target = getattr(cs, info.source, None)
-        if isinstance(target, dict) and info.offset is not None:
-            return float(target.get(info.offset, 0))
-        return 0.0
-
-    def _update_receive_selection_cache(self) -> None:
-        receive = self._protocol_field_prefs.get("receive", {}) or {}
-        self._common_receive_selection = set(receive.get("common", []))
-        self._receive_selection_cache = {
-            category: set(keys)
-            for category, keys in receive.items()
-            if category != "common"
-        }
-
-    def _on_protocol_field_preferences_changed(self, prefs: Dict[str, object]) -> None:
-        try:
-            self._protocol_field_prefs = copy.deepcopy(prefs)
-        except Exception:
-            self._protocol_field_prefs = prefs or {}
-        # refresh caches to reflect template or selection changes
-        self._send_field_infos = self._protocol_field_service.send_field_infos()
-        self._receive_field_infos = self._protocol_field_service.receive_field_infos()
-        self._update_receive_selection_cache()
-        self._build_send_config_groups()
-        self._reset_recv_tree_view()
-
-    def _reset_recv_tree_view(self) -> None:
-        tree = getattr(self, "recv_tree", None)
-        if tree is not None:
-            try:
-                tree.clear()
-            except Exception:
-                pass
-        self._recv_tree_categories = {}
-        self._recv_tree_keys = {}
-
-    def _filter_parsed_record(self, record: RecordDict) -> Dict[str, Any]:
-        parsed = record.get("parsed_data", {}) or {}
-        device_type = str(record.get("device_type", ""))
-        try:
-            category = self.parse_controller.category_from_device(device_type)
-        except Exception:
-            category = ""
-        if not category:
-            category = "generic"
-        return self._filter_parsed_data(parsed, category)
-
-    def _filter_parsed_data(
-        self, parsed: Dict[str, Any], category: str
-    ) -> Dict[str, Any]:
-        filtered: Dict[str, Any] = {}
-        category_selected = self._receive_selection_cache.get(category)
-        common_selected = self._common_receive_selection
-
-        for section_name, value in parsed.items():
-            if isinstance(value, dict):
-                selection_category = (
-                    "common" if section_name == "设备信息" else category
-                )
-                selected_keys = (
-                    common_selected
-                    if selection_category == "common"
-                    else category_selected
-                )
-                section_result: Dict[str, Any] = {}
-                for label, field_value in value.items():
-                    info = self._protocol_field_service.find_receive_field(
-                        selection_category, section_name, label
-                    )
-                    if info is None:
-                        section_result[label] = field_value
-                        continue
-                    if selected_keys is None or info.key in selected_keys:
-                        section_result[label] = field_value
-                if section_result:
-                    filtered[section_name] = section_result
-            else:
-                filtered[section_name] = value
-
-        return filtered
 
     def _setup_workers(self):
         """Create worker placeholders used by start/stop logic.
@@ -1211,7 +1149,7 @@ class ACUSimulator(QMainWindow):
                 setup_ok = self.comm.setup()
             except Exception as exc:
                 logger.exception("Communication setup raised an exception")
-                self._show_error(f"Socket 初始化异常: {exc}")
+                self._show_error(f"Socket 鍒濆鍖栧紓甯? {exc}")
                 return False
 
             if setup_ok:
@@ -1219,22 +1157,22 @@ class ACUSimulator(QMainWindow):
                     self.comm.start_receive_loop()
                 except Exception:
                     logger.exception("start_receive_loop failed")
-                    self._show_error("启动接收循环失败，请检查网络配置或权限。")
-                    self._set_comm_status_indicator("#e74c3c", "启动接收失败")
+                    self._show_error("鍚姩鎺ユ敹寰幆澶辫触锛岃妫€鏌ョ綉缁滈厤缃垨鏉冮檺銆?)
+                    self._set_comm_status_indicator("#e74c3c", "鍚姩鎺ユ敹澶辫触")
                     return False
 
                 # start parse/format workers
                 try:
                     self._start_workers()
                 except Exception as exc:
-                    logger.exception("启动后台 worker 失败")
-                    self._show_error(f"启动后台处理失败: {exc}")
+                    logger.exception("鍚姩鍚庡彴 worker 澶辫触")
+                    self._show_error(f"鍚姩鍚庡彴澶勭悊澶辫触: {exc}")
                     # attempt best-effort stop
                     try:
                         self.stop_communication()
                     except Exception:
                         pass
-                    self._set_comm_status_indicator("#e74c3c", "后台处理启动失败")
+                    self._set_comm_status_indicator("#e74c3c", "鍚庡彴澶勭悊鍚姩澶辫触")
                     return False
 
                 period = int(self.period_spin.value())
@@ -1249,22 +1187,22 @@ class ACUSimulator(QMainWindow):
                 except Exception:
                     logger.exception("Emitting recording_toggle failed")
 
-                self._set_comm_status_indicator("#2ecc71", "通信已启动")
+                self._set_comm_status_indicator("#2ecc71", "閫氫俊宸插惎鍔?)
                 self.on_status_updated("Communication started")
-                self._show_info("通信已启动")
+                self._show_info("閫氫俊宸插惎鍔?)
                 return True
             else:
                 logger.warning("Communication.setup() returned False")
-                self._show_error("Socket 初始化失败，请检查端口或权限")
+                self._show_error("Socket 鍒濆鍖栧け璐ワ紝璇锋鏌ョ鍙ｆ垨鏉冮檺")
                 self.on_status_updated("Socket init failed")
-                self._set_comm_status_indicator("#e74c3c", "Socket 初始化失败")
+                self._set_comm_status_indicator("#e74c3c", "Socket 鍒濆鍖栧け璐?)
                 return False
 
         except Exception as e:
             logger.exception("Unexpected error starting communication")
-            self._show_error(f"启动通信失败: {e}")
+            self._show_error(f"鍚姩閫氫俊澶辫触: {e}")
             self.on_status_updated(f"Start failed: {e}")
-            self._set_comm_status_indicator("#e74c3c", "通信启动失败")
+            self._set_comm_status_indicator("#e74c3c", "閫氫俊鍚姩澶辫触")
             return False
 
     def run_test_once(self):
@@ -1280,7 +1218,7 @@ class ACUSimulator(QMainWindow):
             except Exception as exc:
                 logger.exception("Test UDP send failed")
                 try:
-                    self.on_status_updated(f"UDP发送失败: {exc}")
+                    self.on_status_updated(f"UDP鍙戦€佸け璐? {exc}")
                 except Exception:
                     pass
             try:
@@ -1328,10 +1266,10 @@ class ACUSimulator(QMainWindow):
             self.comm.stop()
         except Exception:
             logger.exception("comm.stop() failed")
-            self._show_error("停止通信时发生错误，请查看日志。")
+            self._show_error("鍋滄閫氫俊鏃跺彂鐢熼敊璇紝璇锋煡鐪嬫棩蹇椼€?)
 
         self.is_sending = False
-        self._set_comm_status_indicator("#999", "通信已停止")
+        self._set_comm_status_indicator("#999", "閫氫俊宸插仠姝?)
 
         # Stop and clean up workers
         try:
@@ -1416,7 +1354,7 @@ class ACUSimulator(QMainWindow):
         except Exception:
             pass
 
-    def _show_info(self, message: str, title: str = "信息"):
+    def _show_info(self, message: str, title: str = "淇℃伅"):
         """Show an informational message if dialogs are enabled; also log."""
         try:
             logger.info(message)
@@ -1551,12 +1489,9 @@ class ACUSimulator(QMainWindow):
                     record = self.recv_tree_buffer.popleft()
                 except Exception:
                     break
+                parsed = record.get("parsed_data", {}) or {}
                 try:
-                    filtered = self._filter_parsed_record(record)
-                except Exception:
-                    filtered = record.get("parsed_data", {}) or {}
-                try:
-                    self._update_recv_tree(filtered)
+                    self._update_recv_tree(parsed)
                 except Exception:
                     pass
                 processed += 1
@@ -1604,7 +1539,7 @@ class ACUSimulator(QMainWindow):
                         pass
             else:
                 # Put non-dict values under a special category
-                item = self._get_or_create_key_item(str(category), "值")
+                item = self._get_or_create_key_item(str(category), "鍊?)
                 try:
                     item.setText(1, str(value))
                 except Exception:
@@ -1769,16 +1704,16 @@ class ACUSimulator(QMainWindow):
             )
             self._embed_parse_table_into_header()
 
-            # legacy dock shim: keep a dock entry so旧布局仍可恢复，但引导至侧边栏
+            # legacy dock shim: keep a dock entry so鏃у竷灞€浠嶅彲鎭㈠锛屼絾寮曞鑷充晶杈规爮
             try:
-                parse_dock = QDockWidget("解析表", self)
+                parse_dock = QDockWidget("瑙ｆ瀽琛?, self)
                 parse_dock.setObjectName("dock_parse_table")
                 notice = QWidget()
                 notice_layout = QVBoxLayout(notice)
                 notice_layout.setContentsMargins(8, 8, 8, 8)
-                label = QLabel("解析表已移动至侧边栏 -> 解析表头 页面。")
+                label = QLabel("瑙ｆ瀽琛ㄥ凡绉诲姩鑷充晶杈规爮 -> 瑙ｆ瀽琛ㄥご 椤甸潰銆?)
                 label.setWordWrap(True)
-                btn = QPushButton("跳转到解析表页面")
+                btn = QPushButton("璺宠浆鍒拌В鏋愯〃椤甸潰")
                 btn.clicked.connect(lambda: self.sidebar_nav.setCurrentRow(3))
                 notice_layout.addWidget(label)
                 notice_layout.addWidget(btn)
@@ -1973,92 +1908,111 @@ class ACUSimulator(QMainWindow):
             pass
 
     def _update_control_state_from_ui(self) -> bool:
-        """Sync widgets on the 发送配置 page back into the control state model."""
+        """Sync widgets on the 鍙戦€侀厤缃?page back into the control state model."""
         cs = getattr(self, "_control_state_model", None)
         if not cs:
             return False
 
-        bool_maps: Dict[str, Dict[Tuple[int, int], bool]] = defaultdict(dict)
-        packed_maps: Dict[str, Dict[int, bool]] = defaultdict(dict)
-        numeric_maps: Dict[str, Dict[int, float]] = defaultdict(dict)
-        scalar_values: Dict[str, float] = {}
+        # Boolean command bits
+        for key, chk in getattr(self, "sc_bool_boxes", {}).items():
+            if chk.isChecked():
+                cs.bool_commands[key] = True
+            else:
+                cs.bool_commands.pop(key, None)
 
-        for key, widget in self._send_field_widgets.items():
-            info = self._send_field_infos.get(key)
-            if info is None:
-                continue
+        # Isolation command bits
+        for bit_idx, chk in getattr(self, "sc_isolation_checkboxes", {}).items():
+            if chk.isChecked():
+                cs.isolation_commands[bit_idx] = True
+            else:
+                cs.isolation_commands.pop(bit_idx, None)
 
-            if isinstance(widget, QCheckBox):
-                checked = widget.isChecked()
-                if (
-                    info.kind == "bool_bitset"
-                    and info.byte is not None
-                    and info.bit is not None
-                ):
-                    if checked:
-                        bool_maps[info.source][(info.byte, info.bit)] = True
-                elif info.kind == "packed_bit" and info.bit is not None:
-                    if checked:
-                        packed_maps[info.source][info.bit] = True
-            elif hasattr(widget, "value"):
-                try:
-                    value = widget.value()
-                except Exception:
-                    continue
-                if info.kind == "scalar_word" and info.source == "battery_temp":
-                    scalar_values[info.source] = int(value)
-                elif info.offset is not None:
-                    if info.source == "start_times":
-                        val = int(value)
-                    else:
-                        val = float(value)
-                    if val > 0:
-                        numeric_maps[info.source][info.offset] = val
+        # Start command bits
+        for bit_idx, chk in getattr(self, "sc_start_checkboxes", {}).items():
+            if chk.isChecked():
+                cs.start_commands[bit_idx] = True
+            else:
+                cs.start_commands.pop(bit_idx, None)
 
-        cs.bool_commands = dict(bool_maps.get("bool_commands", {}))
-        cs.chu_controls = dict(bool_maps.get("chu_controls", {}))
-        cs.redundant_commands = dict(bool_maps.get("redundant_commands", {}))
-        cs.isolation_commands = dict(packed_maps.get("isolation_commands", {}))
-        cs.start_commands = dict(packed_maps.get("start_commands", {}))
-        cs.freq_controls = {
-            offset: float(val)
-            for offset, val in numeric_maps.get("freq_controls", {}).items()
-        }
-        cs.start_times = {
-            offset: int(val)
-            for offset, val in numeric_maps.get("start_times", {}).items()
-        }
-        cs.branch_voltages = {
-            offset: float(val)
-            for offset, val in numeric_maps.get("branch_voltages", {}).items()
-        }
-        if "battery_temp" in scalar_values:
-            cs.battery_temp = int(scalar_values["battery_temp"])
+        # Frequency controls (Hz)
+        for byte_pos, spin in getattr(self, "sc_freq_spinboxes", {}).items():
+            value = float(spin.value())
+            if value > 0:
+                cs.freq_controls[byte_pos] = value
+            else:
+                cs.freq_controls.pop(byte_pos, None)
 
+        # Start-time controls (seconds)
+        for byte_pos, spin in getattr(self, "sc_start_time_spinboxes", {}).items():
+            value = int(spin.value())
+            if value > 0:
+                cs.start_times[byte_pos] = value
+            else:
+                cs.start_times.pop(byte_pos, None)
+
+        # Branch voltages (V)
+        for byte_pos, spin in getattr(self, "sc_branch_spinboxes", {}).items():
+            value = float(spin.value())
+            if value > 0:
+                cs.branch_voltages[byte_pos] = value
+            else:
+                cs.branch_voltages.pop(byte_pos, None)
+
+        # Battery temperature (degC)
+        if getattr(self, "sc_battery_temp_spin", None) is not None:
+            cs.battery_temp = int(self.sc_battery_temp_spin.value())
+
+        # Keep local mirror for quick inspection/debugging
         try:
-            self.control_values["bool_commands"] = dict(cs.bool_commands)
-            self.control_values["chu_controls"] = dict(cs.chu_controls)
-            self.control_values["redundant_commands"] = dict(cs.redundant_commands)
-            self.control_values["isolation_commands"] = dict(cs.isolation_commands)
-            self.control_values["start_commands"] = dict(cs.start_commands)
-            self.control_values["freq_controls"] = dict(cs.freq_controls)
-            self.control_values["start_times"] = dict(cs.start_times)
-            self.control_values["branch_voltages"] = dict(cs.branch_voltages)
-            self.control_values["battery_temp"] = getattr(cs, "battery_temp", 25)
+            self.control_values["bool_commands"] = {
+                key: True
+                for key, chk in getattr(self, "sc_bool_boxes", {}).items()
+                if chk.isChecked()
+            }
+            self.control_values["isolation_commands"] = {
+                bit: True
+                for bit, chk in getattr(self, "sc_isolation_checkboxes", {}).items()
+                if chk.isChecked()
+            }
+            self.control_values["start_commands"] = {
+                bit: True
+                for bit, chk in getattr(self, "sc_start_checkboxes", {}).items()
+                if chk.isChecked()
+            }
+            self.control_values["freq_controls"] = {
+                byte: float(spin.value())
+                for byte, spin in getattr(self, "sc_freq_spinboxes", {}).items()
+                if float(spin.value()) > 0
+            }
+            self.control_values["start_times"] = {
+                byte: int(spin.value())
+                for byte, spin in getattr(self, "sc_start_time_spinboxes", {}).items()
+                if int(spin.value()) > 0
+            }
+            self.control_values["branch_voltages"] = {
+                byte: float(spin.value())
+                for byte, spin in getattr(self, "sc_branch_spinboxes", {}).items()
+                if float(spin.value()) > 0
+            }
+            if getattr(self, "sc_battery_temp_spin", None) is not None:
+                self.control_values["battery_temp"] = int(
+                    self.sc_battery_temp_spin.value()
+                )
         except Exception:
+            # control_values is best-effort bookkeeping
             pass
 
         return True
 
     # ---- Send config actions ----
     def _apply_send_config(self, *args, show_message: bool = True):
-        """Apply values from '发送配置' page to ControlState."""
+        """Apply values from '鍙戦€侀厤缃? page to ControlState."""
         try:
             updated = self._update_control_state_from_ui()
             if updated and show_message:
-                self._show_info("发送配置已应用到内部状态。")
+                self._show_info("鍙戦€侀厤缃凡搴旂敤鍒板唴閮ㄧ姸鎬併€?)
         except Exception:
-            self._show_error("应用发送配置失败。")
+            self._show_error("搴旂敤鍙戦€侀厤缃け璐ャ€?)
 
     def _preview_send_frame(self):
         try:
@@ -2072,4 +2026,4 @@ class ACUSimulator(QMainWindow):
             suffix = " ..." if len(data) > 256 else ""
             self.sc_preview_edit.setPlainText(hex_str + suffix)
         except Exception:
-            self.sc_preview_edit.setPlainText("<预览失败>")
+            self.sc_preview_edit.setPlainText("<棰勮澶辫触>")

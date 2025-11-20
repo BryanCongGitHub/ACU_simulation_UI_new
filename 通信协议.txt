@@ -1,0 +1,318 @@
+
+
+
+时速160公里内燃动力车
+
+
+
+
+辅助变流系统通信协议（ACU与INV及BCC间）
+
+
+
+
+
+
+
+当前版本：                     Rev.1.6
+1.22相当
+
+
+
+编制：
+校核：
+审核：
+批准：
+ 
+目录
+1.	范围	3
+2.	参考文件	3
+3.	缩略词	3
+4.	通信方式	3
+4.1	过程数据	3
+4.2	IP地址	4
+4.3	传输方式	4
+4.4	子网掩码和默认网关	5
+4.5	UDP/IP报文格式	5
+4.6	通讯大小端	5
+5.	通信内容	6
+5.1	ACU发送至INV，CHU，BCC数据报文	6
+5.2	INV，CHU，BCC发送至ACU数据报文	9
+5.3	INV，CHU，BCC发送至ACU数据报文数据定义	14
+6.	修改记录	16
+
+ 
+1.	范围
+本文件描述了时速160公里内燃动力车项目辅助控制基板ACU同INV、BCC间的接口定义。
+2.	参考文件
+[1]《IEC61375-1：2007  列车通信网络》
+[2]《IEC61375-2-3：2015轨道交通电气设备-列车通信网络 第2-3部分：TCN通信协议》
+[3]《IEC61375-3-4：2014轨道交通电气设备-列车通信网络 第3-4部分:固定编组以太网ECN》
+3.	缩略词
+缩略词	描述
+INV	INV UNIT
+CHU	CHU UNIT
+BCC	battery charger
+ACU	ACU Unit
+ECN	Ethernet Consist Network
+TRDP	Train Real-Time Data Protocol
+UDP	User Datagram Protocol
+4.	通信方式
+以太网通信协议采用符合IEC61375-2-3 Edition1.0标准的UDP协议实现。IP地址分配采用符合IEC61375-3-4 Edition1.0标准的方式设置。MAC地址采用IEEE注册机构提供的方法生成，确保通信设备的MAC地址不会有重复。
+固定入网的终端设备及交换机以太网通信端口配置为强制百兆全双工。接收终端的数据接收周期需要与发送终端的数据发送周期保持一致。
+4.1	过程数据
+过程数据主要应用于充电机控制和状态监视。链路层保证数据的完整性。传输数据延迟应小于10ms。过程数据优先级采用标准规定的第二优先级。过程数据基于UDP多播传输。过程数据的收发采用IEC61375-2-3 Edition1.0标准中的PUSH模式。
+
+4.2	IP地址
+设备	IP Address	端口号
+		接收端口	发送端口
+ACU	10.2.0.1	49153~49162	49152
+INV1	10.2.0.2	49152	49153
+INV2	10.2.0.3	49152	49154
+INV3	10.2.0.4	49152	49155
+INV4	10.2.0.5	49152	49156
+INV5	10.2.0.6	49152	49157
+INV6	10.2.0.7	49152	49158
+CHU3	10.2.0.8	49152	49159
+CHU4	10.2.0.9	49152	49160
+BCC1	10.2.0.10	49152	49161
+BCC2	10.2.0.11	49152	49162
+4.3	传输方式
+ACU/BCC发送数据地址列表:
+源	宿	周期	数据长度
+octets	组播/单播/广播
+设备	设备	IP地址			
+ACU	INV1~6，CHU3，CHU4，BCC1，BCC2	239.255.34.1	20ms	320	组播
+INV1	ACU	100ms	64	单播
+INV2	ACU	100ms	64	单播
+INV3	ACU	100ms	64	单播
+INV4	ACU	100ms	64	单播
+INV5	ACU	100ms	64	单播
+INV6	ACU	100ms	64	单播
+CHU3	ACU	100ms	64	单播
+CHU4	ACU	100ms	64	单播
+BCC1	ACU	100ms	64	单播
+BCC2	ACU	100ms	64	单播
+注：“数据长度(octets)”指除报文头Header外的应用数据长度，见5.1、5.2。
+
+
+4.4	子网掩码和默认网关
+子网掩码为24位（255.255.255.0）。
+4.5	UDP/IP报文格式
+UDP/IP数据包格式如下：
+ 
+(1)	Preamble：同步序列（msb10101010lsb 7个同样的八位位组）
+(2)	Start Frame Delimier：帧起始分解符msb10101011lsb
+(3)	Ethernet Header：目的MAC地址：6个八位位组
+源MAC地址：6个八位位组
+类型（协议标识符）：2个八位位组
+(4)	IP Header（参考RFC791）：
+(5)	UDP Header（参考RFC768）：
+(6)	DataSet：传输应用数据 参见第5章通信内容
+(7)	PAD:Pading
+(8)	FCS:帧校验序列
+
+4.6	通讯大小端
+所有通讯数据流均采用大端发送。若设备为小端发送，需软件更改顺序，在发送时，保证以太网上数据流为大端。
+5.	通信内容
+5.1		ACU发送至INV，CHU，BCC数据报文
+字节	位	类型	变量名	信号名	描述	备注
+0	0	UINT	CCU_Life	CCU生命信号	0-65535	所有单元均使用
+2	0	BYTE		年	0-99	所有单元均使用
+3	0	BYTE		月	0-12	所有单元均使用
+4	0	BYTE		日	0-31	所有单元均使用
+5	0	BYTE		时	0-23	所有单元均使用
+6	0	BYTE		分	0-60	所有单元均使用
+7	0	BYTE		秒	0-60	所有单元均使用
+8	0	Bool		均衡充电模式	0=无效；1=有效	BCC1，2为控制蓄电池充电用
+8	1	Bool		停止工作	0=无效；1=有效	所有单元均参考使用
+8	2	Bool		预发车测试状态指令	0=无效；1=有效	所有单元均使用
+8	3	Bool		预留		
+8	4	Bool		预留		
+8	5	Bool		预留		
+8	6	Bool		DCDC3隔离命令	0=无效；1=有效	所有单元均参考使用
+8	7	Bool		DCDC4隔离命令	0=无效；1=有效	所有单元均参考使用
+9	0	Bool		故障复位命令	0=无效；1=有效	所有单元均使用
+9	1	Bool		空压机1启动命令	0=无效；1=有效	INV1，INV5接触器控制用
+9	2	Bool		空压机2启动命令	0=无效；1=有效	INV1，INV5接触器控制用
+9	3	Bool		除尘风机接触器KM61闭合指令	0=无效；1=闭合	INV6接触器控制用
+9	4	Bool		热保障接触器KM62闭合指令	0=无效；1=闭合	INV6接触器控制用
+9	5	Bool		热保障接触器KM63闭合指令	0=无效；1=闭合	INV6接触器控制用
+9	6	Bool		电池水泵接触器KM65闭合指令	0=无效；1=闭合	INV6接触器控制用
+9	7	Bool		柴油机起动状态	0=停机；1=起机	所有单元均参考使用
+10	0	UINT		CCU给定INV2频率	1=0.1Hz	INV2频率控制用
+12	0	UINT		CCU给定INV3频率	1=0.1Hz	INV3频率控制用
+14	0	UINT		CCU给定INV4频率	1=0.1Hz	INV3频率控制用
+16	0	UINT		CCU给定INV5频率	1=0.1Hz	INV3频率控制用
+16-63	0			预留		
+64	0	Bool		INV1隔离指令	0=无效；1=有效	
+64	1	Bool		INV2隔离指令	0=无效；1=有效	
+64	2	Bool		INV3隔离指令	0=无效；1=有效	
+64	3	Bool		INV4隔离指令	0=无效；1=有效	
+64	4	Bool		INV5隔离指令	0=无效；1=有效	
+64	5	Bool		INV6隔离指令	0=无效；1=有效	
+64	6	Bool		BCC1隔离指令	0=无效；1=有效	
+64	7	Bool		BCC2隔离指令	0=无效；1=有效	
+65	0	Bool		INV1启动指令	0=无效；1=有效	
+65	1	Bool		INV2启动指令	0=无效；1=有效	
+65	2	Bool		INV3启动指令	0=无效；1=有效	
+65	3	Bool		INV4启动指令	0=无效；1=有效	
+65	4	Bool		INV5启动指令	0=无效；1=有效	
+65	5	Bool		INV6启动指令	0=无效；1=有效	
+65	6	Bool		BCC1启动指令	0=无效；1=有效	
+65	7	Bool		BCC2启动指令	0=无效；1=有效	
+66	0	Bool		CHU3启动指令	0=无效；1=有效	
+66	1	Bool		CHU4启动指令	0=无效；1=有效	
+66	2	Bool		CHU3隔离指令	0=无效；1=有效	
+66	3	Bool		CHU4隔离指令	0=无效；1=有效	
+66	4	Bool		DCDC3故障	0=无效；1=有效	
+66	5	Bool		DCDC4故障	0=无效；1=有效	
+66	6	Bool		BCC1冗余启动	0=无效；1=有效	
+66	7	Bool		BCC2冗余启动	0=无效；1=有效	
+67	0	Bool		INV1冗余启动	0=无效；1=有效	
+67	1	Bool		INV4冗余启动	0=无效；1=有效	
+67	2	Bool				
+67	3	Bool				
+67	4	Bool				
+67	5	Bool				
+67	6	Bool				
+67	7	Bool				
+68~141	0	Bool		预留		
+142	0	UINT		INV1启动时间		
+144	0	UINT		INV2启动时间		
+146	0	UINT		INV3启动时间		
+148	0	UINT		INV4启动时间		
+150	0	UINT		INV5启动时间		
+152	0	UINT		INV6启动时间		
+154	0	UINT		3支路电压		
+156	0	UINT		4支路电压		
+158	0	UINT		蓄电池温度		
+158~319	0	UINT		预备		
+
+ 
+5.2		INV，CHU，BCC发送至ACU数据报文
+
+字节	位	类型	INV1	INV2	IVN3	INV4	INV5	IVN6	CHU3	CHU4	BCC1	BCC2
+text0~1	bit0~7	UINT	生命信号	同左	同左	同左	同左	同左	同左	同左	同左	同左
+text2~3	bit0~7	UINT	软件编码	同左	同左	同左	同左	同左	同左	同左	同左	同左
+text4~5	bit0~7	UINT	软件版本	同左	同左	同左	同左	同左	同左	同左	同左	同左
+text6~7	bit0~7	UINT	输出频率	同左	同左	同左	同左	同左	调制比	调制比	BCC1输出电压	同左
+text8~9	bit0~7	UINT	U相电流	同左	同左	同左	同左	同左	同左	同左	BCC1输出电流	同左
+text10~11	bit0~7	UINT	V相电流	同左	同左	同左	同左	同左	同左	同左	蓄电池充电电流	同左
+text12~13	bit0~7	UINT	W相电流	同左	同左	同左	同左	同左	同左	同左	电池温度	同左
+text14~15	bit0~7	UINT	输入电压	同左	同左	同左	同左	同左	同左	同左	BCC模块温度	同左
+text16~17	bit0~7	UINT	空压机1电流	　	　	前架牵引风机电流	制动电阻风机1电流	UV线电压	　	　	　	　
+text18~19	bit0~7	UINT	空压机2电流			后架牵引风机电流	制动电阻风机2电流	UW线电压	　	　	进水压力	出水压力
+Text20~21	bit0~7	UINT				冷却塔风机电流		VW线电压	　	　		
+Text22~23	bit0~7	UINT					进水温度	出水温度				
+Text24~25	bit0~7	UINT	IPM温度	同左	同左	同左	同左	同左	同左	同左		
+Text26~27	bit0~7	UINT					空压机1电流					
+Text28~29	bit0~7						空压机2电流					
+Text30~31	bit0~7	UINT					后架牵引风机电流					
+Text32~33	bit0~7	UINT					前架牵引风机电流					
+Text34~35	bit0~7	UINT					冷却塔风机电流					
+Text36~47	bit0~7	UINT										
+text48	bit0	BOOL	工作允许反馈	同左	同左	同左	同左
+
+
+
+	同左	同左	同左	工作允许反馈	同左
+text48	bit1	BOOL	工作中状态反馈	同左	同左	同左	同左
+
+
+	同左	同左	同左	工作中状态反馈	同左
+text48	bit2	BOOL	隔离及锁定反馈	同左	同左	同左	同左	同左	同左	同左	隔离及锁定反馈	同左
+text48	bit3	BOOL	总故障反馈	同左	同左	同左	同左
+	同左	同左	同左	同左	同左
+text48	bit4	BOOL	　	　	　	　	　	　	斩波器3准备完成	斩波器4准备完成	均衡充电模式状态	同左
+text48	bit5	BOOL	　	　	　	　	　	　	　	　	　	　
+text48	bit6	BOOL	　	　	　	　	　	　	　	　	　	　
+text48	bit7	BOOL	　	　	　	　	　	　	　	　	　	　
+text49	bit0	BOOL	KM11闭合指令	　	　	KM43闭合指令	KM44闭合指令	KM61闭合指令	　	　	　	　
+text49	bit1	BOOL	KM12闭合指令	　	　	KM41闭合指令	KM51闭合指令	KM62闭合指令	　	　	　	　
+text49	bit2	BOOL	KM13闭合指令	　	　	KM42闭合指令	KM52闭合指令	KM63闭合指令	　	　	　	　
+text49	bit3	BOOL	　	　	　	　	KM53闭合指令	KM64闭合指令	　	　	　	　
+text49	bit4	BOOL	　	　	　	　	KM12闭合指令	KM65闭合指令	　	　	　	　
+text49	bit5	BOOL	　	　	　	　	KM13闭合指令	KM68闭合指令	　	　	　	　
+text49	bit6	BOOL	　	　	　	　	KM41闭合指令	　	　	　	　	　
+text49	bit7	BOOL	　	　	　	　	KM42闭合指令		　	　	　	　
+text50	bit0	BOOL	　	　	　	QF41闭合状态	　		QF61闭合状态	　	　	　
+text50	bit1	BOOL	　	　	　	　	　		QF62闭合状态	　	　	　
+text50	bit2	BOOL	　	　	　	　	　		QF63闭合状态	　	　	　
+text50	bit3	BOOL	　	　	　	　	　		QF64闭合状态	　	　	　
+text50	bit4	BOOL	　	　	　	　	　		QF65闭合状态	　	　	　
+text50	bit5	BOOL	　	　	　	　	　			　	　	　
+text50	bit6	BOOL	　	　	　	　	　		QF67闭合状态	　	　	　
+text50	bit7	BOOL	预发车测试状态	同左	同左	同左	同左	同左	QF68闭合状态	　	　	　
+text51	bit0	BOOL	KM11闭合状态	　	　	KM43闭合状态	KM44闭合状态	KM61闭合状态	　	　	　	　
+text51	bit1	BOOL	KM12闭合状态	　	　	KM41闭合状态	KM51闭合状态	KM62闭合状态	　	　	　	　
+text51	bit2	BOOL	KM13闭合状态	　	　	KM42闭合状态	KM52闭合状态	KM63闭合状态	　	　	　	　
+text51	bit3	BOOL	　	　	　	　	KM53闭合状态	KM64闭合状态	　	　	　	　
+text51	bit4	BOOL	　	　	　	　	KM11闭合状态	KM65闭合状态	　	　	　	　
+text51	bit5	BOOL	　	　	　	　	KM43闭合状态	　	　	　	　	　
+text51	bit6	BOOL	　	　	　	　	QF41闭合状态	　	　	　	　	　
+text51	bit7	BOOL	　	　	　	　	　	KM68闭合状态	　	　	　	　
+text52	bit0	BOOL	模块A相管保护	同左	同左	同左	同左	同左	同左	同左	原边过流	同左
+text52	bit1	BOOL	模块B相管保护	同左	同左	同左	同左	同左	同左	同左	输出过压	同左
+text52	bit2	BOOL	模块C相管保护	同左	同左	同左	同左	同左	同左	同左	输出欠压	同左
+text52	bit3	BOOL	模块过热	同左	同左	同左	同左	同左	同左	同左	输出过流	同左
+text52	bit4	BOOL	模块输出短路过流	同左	同左	同左	同左	同左	同左	同左	蓄电池充电过流	同左
+text52	bit5	BOOL	模块输出三相不平衡	同左	同左	同左	同左	同左	同左	同左	模块管保护	同左
+text52	bit6	BOOL	输出过流	　	　	　	　	　	　	　	输入熔断器故障	同左
+text52	bit7	BOOL	IPM电流异常	同左	同左	同左	同左	同左	同左	同左	蓄电池温度过高	同左
+text53	bit0	BOOL	模块输出1.5倍过载	同左	同左	同左	同左	同左	同左	同左	蓄电池温度传感器故障	同左
+text53	bit1	BOOL	模块输出1.2倍过载	同左	同左	同左	同左	同左	同左	同左	模块温度传感器故障	同左
+text53	bit2	BOOL	Fuse溶断	同左	同左	同左	同左	同左	同左	同左	模块过温	同左
+text53	bit3	BOOL	　	　	　	　	　	输出过压	　	　	　	　
+text53	bit4	BOOL	　	　	　	　	　	输出欠压	　	　	　	　
+text53	bit5	BOOL	　	　	　	　	　	　	　	　	　	　
+text53	bit6	BOOL	　	　	　	　	　	　	　	　	　	　
+text53	bit7	BOOL	生命信号故障	同左	同左	同左	同左	同左	同左	同左	生命信号故障	同左
+text54	bit0	BOOL	　	　	　	QF41断开故障	　		QF61断开故障	　	　	　
+text54	bit1	BOOL	　	　	　	　	　		QF62断开故障	　	　	　
+text54	bit2	BOOL	　	　	　	　	　		QF63断开故障	　	　	　
+text54	bit3	BOOL	　	　	　	　	　		QF64断开故障	　	　	　
+text54	bit4	BOOL	　	　	　	　	　		QF65断开故障	　	　	　
+text54	bit5	BOOL	　	　	　	　	　			　	　	　
+text54	bit6	BOOL	　	　	　	　	　		QF67断开故障	　	　	　
+text54	bit7	BOOL	　	　	　	　	　		QF68断开故障	　	　	　
+text55	bit0	BOOL	KM11无法闭合故障	　	　	KM43无法闭合故障	KM44无法闭合故障	KM61无法闭合故障	　	　	　	　
+text55	bit1	BOOL	KM12无法闭合故障	　	　	KM41无法闭合故障	KM51无法闭合故障	KM62无法闭合故障	　	　	　	　
+text55	bit2	BOOL	KM13无法闭合故障	　	　	KM42无法闭合故障	KM52无法闭合故障	KM63无法闭合故障	　	　	　	　
+text55	bit3	BOOL	　	　	　	　	KM53无法闭合故障	KM64无法闭合故障	　	　	　	　
+text55	bit4	BOOL	　	　	　	　	KM54无法闭合故障	KM65无法闭合故障	　	　	　	　
+text55	bit5	BOOL	　	　	　	　	KM34无法闭合故障	　	　	　	　	　
+text55	bit6	BOOL	　	　	　	　	　	　	　	　	　	　
+text55	bit7	BOOL	　	　	　	　	　	　	　	　	　	　
+text56	bit0	BOOL	KM11无法断开故障	　	　	KM43无法断开故障	KM44无法断开故障	KM61无法断开故障	　	　	　	　
+text56	bit1	BOOL	KM12无法断开故障	　	　	KM41无法断开故障	KM51无法断开故障	KM62无法断开故障	　	　	　	　
+text56	bit2	BOOL	KM13无法断开故障	　	　	KM42无法断开故障	KM52无法断开故障	KM63无法断开故障	　	　	　	　
+text56	bit3	BOOL	　	　	　	　	KM53无法断开故障	KM64无法断开故障	　	　	　	　
+text56	bit4	BOOL	　	　	　	　	KM54无法断开故障	KM65无法断开故障	　	　	　	　
+text56	bit5	BOOL	　	　	　	　	KM34无法闭合故障	　	　	　	　	　
+text56	bit6	BOOL	　	　	　	　	　	　	　	　	　	　
+text56	bit7	BOOL	　	　	　	　	　	　	　	　	　	　
+text57	bit0	BOOL	空压机1电流异常			前架牵引风机电流异常	制动风机1电流异常					
+text57	bit1	BOOL	空压机2电流异常			后架牵引风机电流异常	制动风机2电流异常					
+text57	bit2	BOOL						辅助逆变器过载				
+text57	bit3	BOOL										
+text57	bit4	BOOL										
+text57	bit5	BOOL										
+text57	bit6	BOOL										
+text57	bit7	BOOL										
+text57~63	bit0	BOOL	预留
+5.3	INV，CHU，BCC发送至ACU数据报文数据定义
+除特殊约定外，均按下表执行。
+项目	定义	备注
+软件编号	例如0x102表示V1.0.2	
+软件版本	例如0x102表示V1.0.2	
+数字量	0=无效；1=有效	
+生命信号	0-65535	
+电流值	1=0.25A	
+电压值	1=0.25V	
+调制比	1=0.01%	
+温度	1=0.1℃	
+压力	1=0.1Kpa	
+接触器，断路器状态	0=断开；1=闭合	
+ 
+
