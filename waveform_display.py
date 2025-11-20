@@ -16,10 +16,14 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtCore import QSettings
 from waveform_controller import WaveformController
 from signal_manager import SignalManager
 from waveform_plot import WaveformPlotWidget
+from infra.settings_store import (
+    WaveformSettings,
+    load_waveform_settings,
+    save_waveform_settings,
+)
 import logging
 
 # 创建日志记录器
@@ -479,7 +483,8 @@ class WaveformDisplay(QWidget):
 
                 fieldnames = ["timestamp"] + display_names
 
-                with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                # write without BOM so CSV headers are plain ASCII/UTF-8
+                with open(path, "w", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     for r in rows:
@@ -493,8 +498,7 @@ class WaveformDisplay(QWidget):
             # remember last export path for convenience
             try:
                 self._last_export_path = path
-                settings = QSettings()
-                settings.setValue("WaveformDisplay/last_export_path", path)
+                self.save_settings()
             except Exception:
                 pass
 
@@ -916,26 +920,19 @@ class WaveformDisplay(QWidget):
         """添加接收数据（供外部调用）"""
         self.controller.add_receive_data(parsed_data, device_type, timestamp)
 
-    def save_settings(self):
-        """Persist WaveformDisplay settings using QSettings."""
+    def shutdown(self) -> None:
+        """Release resources ahead of application shutdown."""
         try:
-            settings = QSettings()
-            settings.beginGroup("WaveformDisplay")
-            # selected signals
-            sel = self.controller.get_selected_signals()
-            settings.setValue("selected_signals", list(sel))
-            # time range
-            settings.setValue("time_range", self.time_range_combo.currentText())
-            # auto range
-            settings.setValue("auto_range", self.auto_range_check.isChecked())
-            # last export path
-            settings.setValue(
-                "last_export_path", getattr(self, "_last_export_path", "")
-            )
-            # signal order: save checked items in tree order so plots can be
-            # restored in the same order
+            if getattr(self, "controller", None) is not None:
+                self.controller.shutdown()
+        except Exception:
+            pass
+
+    def save_settings(self):
+        """Persist WaveformDisplay settings using the central store."""
+        try:
+            order: list[str] = []
             try:
-                order = []
                 for i in range(self.signal_tree.topLevelItemCount()):
                     cat = self.signal_tree.topLevelItem(i)
                     for j in range(cat.childCount()):
@@ -944,32 +941,49 @@ class WaveformDisplay(QWidget):
                             sid = item.data(0, Qt.UserRole)
                             if sid:
                                 order.append(str(sid))
-                settings.setValue("signal_order", order)
             except Exception:
-                pass
+                order = []
 
-            settings.endGroup()
+            palette: dict[str, str] = {}
             try:
-                settings.sync()
+                curves = getattr(self.waveform_widget, "curves", {})
+                for sid, info in curves.items():
+                    color = info.get("color")
+                    if color:
+                        palette[str(sid)] = color
             except Exception:
-                pass
+                palette = {}
+
+            splitter_sizes = None
+            try:
+                if getattr(self, "splitter", None) is not None:
+                    splitter_sizes = [int(x) for x in self.splitter.sizes()]
+            except Exception:
+                splitter_sizes = None
+
+            state = WaveformSettings(
+                selected_signals=list(self.controller.get_selected_signals()),
+                time_range=self.time_range_combo.currentText(),
+                auto_range=self.auto_range_check.isChecked(),
+                last_export_path=getattr(self, "_last_export_path", ""),
+                signal_order=order,
+                splitter_sizes=splitter_sizes,
+                palette=palette,
+            )
+            save_waveform_settings(state)
         except Exception:
             logger.exception("保存 WaveformDisplay 设置失败")
 
     def load_settings(self):
         """Load persisted WaveformDisplay settings and apply to UI."""
         try:
-            settings = QSettings()
-            settings.beginGroup("WaveformDisplay")
-            sel = settings.value("selected_signals", []) or []
-            time_range = settings.value(
-                "time_range", self.time_range_combo.currentText()
-            )
-            auto_range = settings.value("auto_range", True)
-            last_export = settings.value("last_export_path", "") or ""
-            signal_order = settings.value("signal_order", []) or []
-            splitter_sizes = settings.value("splitter_sizes", None)
-            settings.endGroup()
+            stored = load_waveform_settings()
+            sel = stored.selected_signals or []
+            time_range = stored.time_range or self.time_range_combo.currentText()
+            auto_range = stored.auto_range
+            last_export = stored.last_export_path or ""
+            signal_order = stored.signal_order or []
+            splitter_sizes = stored.splitter_sizes
 
             # apply time range and auto range
             try:
@@ -979,11 +993,7 @@ class WaveformDisplay(QWidget):
                 pass
             try:
                 if splitter_sizes and getattr(self, "splitter", None) is not None:
-                    try:
-                        sizes = [int(x) for x in splitter_sizes]
-                    except Exception:
-                        sizes = splitter_sizes
-                    self.splitter.setSizes(sizes)
+                    self.splitter.setSizes(splitter_sizes)
             except Exception:
                 pass
 
@@ -1044,10 +1054,18 @@ class WaveformDisplay(QWidget):
                         pass
 
             # try to restore saved palette/colors if any
+            applied_palette = False
             try:
-                self._load_palette_from_settings(silent=True)
+                if stored.palette:
+                    applied_palette = self._apply_palette_mapping(stored.palette)
             except Exception:
-                pass
+                applied_palette = False
+
+            if not applied_palette:
+                try:
+                    self._load_palette_from_settings(silent=True)
+                except Exception:
+                    pass
 
         except Exception:
             logger.exception("加载 WaveformDisplay 设置失败")
@@ -1064,6 +1082,29 @@ class WaveformDisplay(QWidget):
             return SettingsDialog
         except Exception:
             return None
+
+    def _apply_palette_mapping(self, mapping: dict) -> bool:
+        if not mapping:
+            return False
+
+        applied = False
+        for key, color in (mapping or {}).items():
+            try:
+                self.waveform_widget.set_curve_color(key, color)
+                applied = True
+            except Exception:
+                try:
+                    self.waveform_widget.set_curve_color(int(key), color)
+                    applied = True
+                except Exception:
+                    pass
+
+        if applied:
+            try:
+                self._rebuild_legend()
+            except Exception:
+                pass
+        return applied
 
     def _load_palette_from_settings(self, silent: bool = False) -> bool:
         cls = self._get_settings_dialog_cls()
@@ -1082,21 +1123,15 @@ class WaveformDisplay(QWidget):
         if not mapping:
             return False
 
-        for key, color in (mapping or {}).items():
+        applied = self._apply_palette_mapping(mapping)
+        if applied:
             try:
-                self.waveform_widget.set_curve_color(key, color)
+                state = load_waveform_settings()
+                state.palette = {str(k): str(v) for k, v in mapping.items()}
+                save_waveform_settings(state)
             except Exception:
-                try:
-                    self.waveform_widget.set_curve_color(int(key), color)
-                except Exception:
-                    pass
-
-        try:
-            self._rebuild_legend()
-        except Exception:
-            pass
-
-        return True
+                pass
+        return applied
 
     def _on_thumb_clicked(self):
         """Generate a small thumbnail snapshot of the current plot."""

@@ -1,6 +1,9 @@
 # signal_manager.py
 from __future__ import annotations
 
+import json
+import logging
+from pathlib import Path
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from PySide6.QtCore import QObject
@@ -10,6 +13,10 @@ if TYPE_CHECKING:
 
 
 SignalInfo = Dict[str, object]
+
+
+logger = logging.getLogger(__name__)
+SIGNAL_DEFINITION_PATH = Path(__file__).with_name("signal_definitions.json")
 
 
 class SignalManager(QObject):
@@ -23,466 +30,118 @@ class SignalManager(QObject):
 
     def load_signal_definitions(self):
         """加载信号定义"""
-        # 发送信号定义
-        send_signals: Dict[str, SignalInfo] = {
-            # 基本控制命令
-            "send_bool_均衡充电模式": {
-                "name": "均衡充电模式",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#FF6B6B",
-                "byte": 8,
-                "bit": 0,
-            },
-            "send_bool_停止工作": {
-                "name": "停止工作",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#4ECDC4",
-                "byte": 8,
-                "bit": 1,
-            },
-            "send_bool_预发车测试": {
-                "name": "预发车测试",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#45B7D1",
-                "byte": 8,
-                "bit": 2,
-            },
-            "send_bool_DCDC3隔离": {
-                "name": "DCDC3隔离",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#96CEB4",
-                "byte": 8,
-                "bit": 6,
-            },
-            "send_bool_DCDC4隔离": {
-                "name": "DCDC4隔离",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#FFEAA7",
-                "byte": 8,
-                "bit": 7,
-            },
-            "send_bool_故障复位": {
-                "name": "故障复位",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#DDA0DD",
-                "byte": 9,
-                "bit": 0,
-            },
-            # 设备控制
-            "send_bool_空压机1启动": {
-                "name": "空压机1启动",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#98D8C8",
-                "byte": 9,
-                "bit": 1,
-            },
-            "send_bool_空压机2启动": {
-                "name": "空压机2启动",
-                "category": "发送指令",
-                "type": "bool",
-                "color": "#F7DC6F",
-                "byte": 9,
-                "bit": 2,
-            },
-            # 隔离指令
-            "send_bool_INV1隔离": {
-                "name": "INV1隔离",
-                "category": "隔离指令",
-                "type": "bool",
-                "color": "#BB8FCE",
-                "byte": 64,
-                "bit": 0,
-            },
-            "send_bool_INV2隔离": {
-                "name": "INV2隔离",
-                "category": "隔离指令",
-                "type": "bool",
-                "color": "#85C1E9",
-                "byte": 64,
-                "bit": 1,
-            },
-            "send_bool_INV3隔离": {
-                "name": "INV3隔离",
-                "category": "隔离指令",
-                "type": "bool",
-                "color": "#F8C471",
-                "byte": 64,
-                "bit": 2,
-            },
-            "send_bool_INV4隔离": {
-                "name": "INV4隔离",
-                "category": "隔离指令",
-                "type": "bool",
-                "color": "#82E0AA",
-                "byte": 64,
-                "bit": 3,
-            },
-            "send_bool_INV5隔离": {
-                "name": "INV5隔离",
-                "category": "隔离指令",
-                "type": "bool",
-                "color": "#F1948A",
-                "byte": 64,
-                "bit": 4,
-            },
-            "send_bool_INV6隔离": {
-                "name": "INV6隔离",
-                "category": "隔离指令",
-                "type": "bool",
-                "color": "#AED6F1",
-                "byte": 64,
-                "bit": 5,
-            },
-            # 启动指令
-            "send_bool_INV1启动": {
-                "name": "INV1启动",
-                "category": "启动指令",
-                "type": "bool",
-                "color": "#ABEBC6",
-                "byte": 65,
-                "bit": 0,
-            },
-            "send_bool_INV2启动": {
-                "name": "INV2启动",
-                "category": "启动指令",
-                "type": "bool",
-                "color": "#F9E79F",
-                "byte": 65,
-                "bit": 1,
-            },
-            "send_bool_INV3启动": {
-                "name": "INV3启动",
-                "category": "启动指令",
-                "type": "bool",
-                "color": "#D7BDE2",
-                "byte": 65,
-                "bit": 2,
-            },
-            "send_bool_INV4启动": {
-                "name": "INV4启动",
-                "category": "启动指令",
-                "type": "bool",
-                "color": "#A9CCE3",
-                "byte": 65,
-                "bit": 3,
-            },
-            "send_bool_INV5启动": {
-                "name": "INV5启动",
-                "category": "启动指令",
-                "type": "bool",
-                "color": "#FAD7A0",
-                "byte": 65,
-                "bit": 4,
-            },
-            "send_bool_INV6启动": {
-                "name": "INV6启动",
-                "category": "启动指令",
-                "type": "bool",
-                "color": "#A2D9CE",
-                "byte": 65,
-                "bit": 5,
-            },
-            # 频率控制
-            "send_analog_INV2频率": {
-                "name": "INV2频率",
-                "category": "模拟量控制",
-                "type": "analog",
-                "color": "#FF6B6B",
-                "byte": 10,
-                "unit": "Hz",
-            },
-            "send_analog_INV3频率": {
-                "name": "INV3频率",
-                "category": "模拟量控制",
-                "type": "analog",
-                "color": "#4ECDC4",
-                "byte": 12,
-                "unit": "Hz",
-            },
-            "send_analog_INV4频率": {
-                "name": "INV4频率",
-                "category": "模拟量控制",
-                "type": "analog",
-                "color": "#45B7D1",
-                "byte": 14,
-                "unit": "Hz",
-            },
-            "send_analog_INV5频率": {
-                "name": "INV5频率",
-                "category": "模拟量控制",
-                "type": "analog",
-                "color": "#96CEB4",
-                "byte": 16,
-                "unit": "Hz",
-            },
-            # 新增发送信号 - 软件版本和生命信号等
-            "send_analog_生命信号": {
-                "name": "ACU生命信号",
-                "category": "设备信息",
-                "type": "analog",
-                "color": "#FF7F50",
-                "byte": 0,
-                "unit": "",
-            },
-            "send_analog_软件编码": {
-                "name": "ACU软件编码",
-                "category": "设备信息",
-                "type": "analog",
-                "color": "#9ACD32",
-                "byte": 2,
-                "unit": "",
-            },
-            "send_analog_软件版本": {
-                "name": "ACU软件版本",
-                "category": "设备信息",
-                "type": "analog",
-                "color": "#1E90FF",
-                "byte": 4,
-                "unit": "",
-            },
-        }
-
-        # 接收信号定义
-        recv_signals: Dict[str, SignalInfo] = {
-            # 状态反馈
-            "recv_bool_工作允许反馈": {
-                "name": "工作允许反馈",
-                "category": "状态反馈",
-                "type": "bool",
-                "color": "#FF6B6B",
-                "byte": 48,
-                "bit": 0,
-            },
-            "recv_bool_工作中状态反馈": {
-                "name": "工作中状态反馈",
-                "category": "状态反馈",
-                "type": "bool",
-                "color": "#4ECDC4",
-                "byte": 48,
-                "bit": 1,
-            },
-            "recv_bool_隔离及锁定反馈": {
-                "name": "隔离及锁定反馈",
-                "category": "状态反馈",
-                "type": "bool",
-                "color": "#45B7D1",
-                "byte": 48,
-                "bit": 2,
-            },
-            "recv_bool_总故障反馈": {
-                "name": "总故障反馈",
-                "category": "状态反馈",
-                "type": "bool",
-                "color": "#96CEB4",
-                "byte": 48,
-                "bit": 3,
-            },
-            "recv_bool_斩波器准备完成": {
-                "name": "斩波器准备完成",
-                "category": "状态反馈",
-                "type": "bool",
-                "color": "#FFEAA7",
-                "byte": 48,
-                "bit": 4,
-            },
-            "recv_bool_均衡充电模式状态": {
-                "name": "均衡充电模式状态",
-                "category": "状态反馈",
-                "type": "bool",
-                "color": "#DDA0DD",
-                "byte": 48,
-                "bit": 4,
-            },
-            # 运行参数
-            "recv_analog_输出频率": {
-                "name": "输出频率",
-                "category": "运行参数",
-                "type": "analog",
-                "color": "#98D8C8",
-                "byte": 6,
-                "unit": "Hz",
-                "scale": 0.1,
-            },
-            "recv_analog_U相电流": {
-                "name": "U相电流",
-                "category": "运行参数",
-                "type": "analog",
-                "color": "#F7DC6F",
-                "byte": 8,
-                "unit": "A",
-                "scale": 0.25,
-            },
-            "recv_analog_V相电流": {
-                "name": "V相电流",
-                "category": "运行参数",
-                "type": "analog",
-                "color": "#BB8FCE",
-                "byte": 10,
-                "unit": "A",
-                "scale": 0.25,
-            },
-            "recv_analog_W相电流": {
-                "name": "W相电流",
-                "category": "运行参数",
-                "type": "analog",
-                "color": "#85C1E9",
-                "byte": 12,
-                "unit": "A",
-                "scale": 0.25,
-            },
-            "recv_analog_输入电压": {
-                "name": "输入电压",
-                "category": "运行参数",
-                "type": "analog",
-                "color": "#F8C471",
-                "byte": 14,
-                "unit": "V",
-                "scale": 0.25,
-            },
-            "recv_analog_IPM温度": {
-                "name": "IPM温度",
-                "category": "运行参数",
-                "type": "analog",
-                "color": "#82E0AA",
-                "byte": 24,
-                "unit": "°C",
-                "scale": 0.1,
-            },
-            # 新增接收信号 - 设备信息
-            "recv_analog_生命信号": {
-                "name": "APU生命信号",
-                "category": "设备信息",
-                "type": "analog",
-                "color": "#FF7F50",
-                "byte": 0,
-                "unit": "",
-            },
-            "recv_analog_软件编码": {
-                "name": "APU软件编码",
-                "category": "设备信息",
-                "type": "analog",
-                "color": "#9ACD32",
-                "byte": 2,
-                "unit": "",
-            },
-            "recv_analog_软件版本": {
-                "name": "APU软件版本",
-                "category": "设备信息",
-                "type": "analog",
-                "color": "#1E90FF",
-                "byte": 4,
-                "unit": "",
-            },
-            # 新增接收信号 - 故障信息相关
-            "recv_bool_模块A相管保护": {
-                "name": "模块A相管保护",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 0,
-            },
-            "recv_bool_模块B相管保护": {
-                "name": "模块B相管保护",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 1,
-            },
-            "recv_bool_模块C相管保护": {
-                "name": "模块C相管保护",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 2,
-            },
-            "recv_bool_模块过热": {
-                "name": "模块过热",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 3,
-            },
-            "recv_bool_模块输出短路过流": {
-                "name": "模块输出短路过流",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 4,
-            },
-            "recv_bool_模块输出三相不平衡": {
-                "name": "模块输出三相不平衡",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 5,
-            },
-            "recv_bool_输出过流": {
-                "name": "输出过流",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 6,
-            },
-            "recv_bool_IPM电流异常": {
-                "name": "IPM电流异常",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 52,
-                "bit": 7,
-            },
-            "recv_bool_模块输出1.5倍过载": {
-                "name": "模块输出1.5倍过载",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 53,
-                "bit": 0,
-            },
-            "recv_bool_模块输出1.2倍过载": {
-                "name": "模块输出1.2倍过载",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 53,
-                "bit": 1,
-            },
-            "recv_bool_Fuse熔断": {
-                "name": "Fuse熔断",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 53,
-                "bit": 2,
-            },
-            "recv_bool_生命信号故障": {
-                "name": "生命信号故障",
-                "category": "故障信息",
-                "type": "bool",
-                "color": "#8B0000",
-                "byte": 53,
-                "bit": 7,
-            },
-        }
+        payload = self._read_signal_payload(SIGNAL_DEFINITION_PATH)
+        send_signals = self._validate_signal_group(payload.get("send"), "send")
+        recv_signals = self._validate_signal_group(payload.get("receive"), "recv")
 
         self.signals.clear()
         self.signals.update(send_signals)
         self.signals.update(recv_signals)
+
+        if not self.signals:
+            logger.warning("未能加载任何信号定义，文件: %s", SIGNAL_DEFINITION_PATH)
+            self._category_order = []
+            return
+
         self._finalize_signals()
+
+    def _read_signal_payload(self, path: Path) -> Dict[str, object]:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            logger.warning("信号定义文件不存在: %s", path)
+            return {"send": {}, "receive": {}}
+        except Exception:
+            logger.exception("读取信号定义文件失败: %s", path)
+            return {"send": {}, "receive": {}}
+
+        try:
+            data = json.loads(text)
+        except Exception:
+            logger.exception("解析信号定义文件失败: %s", path)
+            return {"send": {}, "receive": {}}
+
+        if not isinstance(data, dict):
+            logger.warning("信号定义文件格式无效，应为字典: %s", path)
+            return {"send": {}, "receive": {}}
+        return data
+
+    def _validate_signal_group(
+        self, group: Optional[Dict[str, object]], prefix: str
+    ) -> Dict[str, SignalInfo]:
+        result: Dict[str, SignalInfo] = {}
+        if not isinstance(group, dict):
+            return result
+
+        for signal_id, raw in group.items():
+            if not isinstance(signal_id, str):
+                logger.warning("忽略非字符串的信号 ID: %r", signal_id)
+                continue
+            if prefix and not signal_id.startswith(f"{prefix}_"):
+                logger.warning("信号 ID %s 不符合前缀 %s", signal_id, prefix)
+            if not isinstance(raw, dict):
+                logger.warning("信号 %s 定义格式无效: 需要字典", signal_id)
+                continue
+
+            try:
+                byte_value = int(raw.get("byte"))
+            except (TypeError, ValueError):
+                logger.warning("信号 %s 缺少有效的 byte 字段", signal_id)
+                continue
+
+            name = str(raw.get("name", "")).strip() or signal_id
+            category = str(raw.get("category", "")).strip() or "未分类"
+            sig_type = str(raw.get("type", "")).strip() or "analog"
+
+            entry: SignalInfo = {
+                "name": name,
+                "category": category,
+                "type": sig_type,
+                "byte": byte_value,
+            }
+
+            color = raw.get("color")
+            if color:
+                entry["color"] = str(color)
+
+            for field in ("bit", "order"):
+                value = raw.get(field)
+                if value is not None:
+                    try:
+                        entry[field] = int(value)
+                    except (TypeError, ValueError):
+                        logger.warning("信号 %s 的 %s 字段无效", signal_id, field)
+
+            offset_val = raw.get("offset")
+            if offset_val is not None:
+                try:
+                    entry["offset"] = int(offset_val)
+                except (TypeError, ValueError):
+                    logger.warning("信号 %s 的 offset 字段无效", signal_id)
+
+            scale_val = raw.get("scale")
+            if scale_val is not None:
+                try:
+                    entry["scale"] = float(scale_val)
+                except (TypeError, ValueError):
+                    logger.warning("信号 %s 的 scale 字段无效", signal_id)
+
+            for field in (
+                "unit",
+                "display_category",
+                "source",
+                "section",
+                "category_key",
+                "group_title",
+                "kind",
+            ):
+                value = raw.get(field)
+                if value:
+                    entry[field] = str(value)
+
+            result[signal_id] = entry
+
+        return result
 
     def _finalize_signals(self) -> None:
         """Ensure display metadata and ordering are available for all signals."""

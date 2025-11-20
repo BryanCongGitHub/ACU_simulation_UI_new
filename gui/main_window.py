@@ -44,8 +44,10 @@ from PySide6.QtCore import (
     QMetaObject,
     Signal,
     QSettings,
+    QEvent,
     Qt,
 )
+from shiboken6 import isValid
 
 # no GUI font customization required in this migration patch
 
@@ -53,6 +55,12 @@ from waveform_display import WaveformDisplay
 from views.event_bus import ViewEventBus
 from gui.settings_dialog import SettingsDialog
 from gui.protocol_field_browser import ProtocolFieldBrowser
+
+from infra.settings_store import (
+    DeviceConfigSettings,
+    load_device_config,
+    save_device_config,
+)
 
 from controllers.communication_controller import CommunicationController
 from controllers.parse_controller import ParseController
@@ -212,6 +220,13 @@ class ACUSimulator(QMainWindow):
         enable_dialogs: bool = True,
     ):
         super().__init__()
+        self._cleanup_done = False
+        self._cleanup_in_progress = False
+        self._log_handler = None
+        try:
+            self.destroyed.connect(self._on_destroyed)
+        except Exception:
+            pass
         self.comm = comm or CommunicationController()
         self._enable_dialogs = enable_dialogs
         self.worker_thread = None
@@ -579,91 +594,51 @@ class ACUSimulator(QMainWindow):
             pass
 
     def load_device_settings(self):
-        """Load device configuration from QSettings into the UI fields."""
+        """Load persisted device configuration into the sidebar fields."""
         try:
-            settings = QSettings()
-            settings.beginGroup("ACUSimulator")
-            settings.beginGroup("DeviceConfig")
-            try:
-                acu_ip = settings.value("acu_ip", self.acu_ip_edit.text())
-                acu_send = settings.value(
-                    "acu_send_port", self.acu_send_port_edit.text()
-                )
-                acu_recv = settings.value(
-                    "acu_receive_port", self.acu_receive_port_edit.text()
-                )
-                target_ip = settings.value("target_ip", self.target_ip_edit.text())
-                target_recv = settings.value(
-                    "target_receive_port", self.target_receive_port_edit.text()
-                )
+            defaults = DeviceConfigSettings(
+                acu_ip=str(self.acu_ip_edit.text()),
+                acu_send_port=str(self.acu_send_port_edit.text()),
+                acu_receive_port=str(self.acu_receive_port_edit.text()),
+                target_ip=str(self.target_ip_edit.text()),
+                target_receive_port=str(self.target_receive_port_edit.text()),
+            )
+            config = load_device_config(defaults)
 
-                # Ensure string values for line edits
-                try:
-                    self.acu_ip_edit.setText(str(acu_ip))
-                except Exception:
-                    pass
-                try:
-                    self.acu_send_port_edit.setText(str(acu_send))
-                except Exception:
-                    pass
-                try:
-                    self.acu_receive_port_edit.setText(str(acu_recv))
-                except Exception:
-                    pass
-                try:
-                    self.target_ip_edit.setText(str(target_ip))
-                except Exception:
-                    pass
-                try:
-                    self.target_receive_port_edit.setText(str(target_recv))
-                except Exception:
-                    pass
-            finally:
-                settings.endGroup()
-                settings.endGroup()
+            try:
+                self.acu_ip_edit.setText(str(config.acu_ip))
+            except Exception:
+                pass
+            try:
+                self.acu_send_port_edit.setText(str(config.acu_send_port))
+            except Exception:
+                pass
+            try:
+                self.acu_receive_port_edit.setText(str(config.acu_receive_port))
+            except Exception:
+                pass
+            try:
+                self.target_ip_edit.setText(str(config.target_ip))
+            except Exception:
+                pass
+            try:
+                self.target_receive_port_edit.setText(str(config.target_receive_port))
+            except Exception:
+                pass
         except Exception:
             pass
 
     def save_device_settings(self):
-        """Save current device UI fields into QSettings."""
+        """Persist current device sidebar fields via the centralized store."""
         try:
-            settings = QSettings()
-            settings.beginGroup("ACUSimulator")
-            settings.beginGroup("DeviceConfig")
-            try:
-                settings.setValue("acu_ip", self.acu_ip_edit.text())
-                # try to store ports as ints where possible
-                try:
-                    settings.setValue(
-                        "acu_send_port", int(self.acu_send_port_edit.text())
-                    )
-                except Exception:
-                    settings.setValue("acu_send_port", self.acu_send_port_edit.text())
-                try:
-                    settings.setValue(
-                        "acu_receive_port", int(self.acu_receive_port_edit.text())
-                    )
-                except Exception:
-                    settings.setValue(
-                        "acu_receive_port", self.acu_receive_port_edit.text()
-                    )
-
-                settings.setValue("target_ip", self.target_ip_edit.text())
-                try:
-                    settings.setValue(
-                        "target_receive_port", int(self.target_receive_port_edit.text())
-                    )
-                except Exception:
-                    settings.setValue(
-                        "target_receive_port", self.target_receive_port_edit.text()
-                    )
-            finally:
-                settings.endGroup()
-                settings.endGroup()
-                try:
-                    settings.sync()
-                except Exception:
-                    pass
+            data = DeviceConfigSettings(
+                acu_ip=str(self.acu_ip_edit.text()),
+                acu_send_port=str(self.acu_send_port_edit.text()),
+                acu_receive_port=str(self.acu_receive_port_edit.text()),
+                target_ip=str(self.target_ip_edit.text()),
+                target_receive_port=str(self.target_receive_port_edit.text()),
+            )
+            save_device_config(data)
             try:
                 self._show_info("设备配置已保存。", "信息")
             except Exception:
@@ -1341,7 +1316,8 @@ class ACUSimulator(QMainWindow):
             self._show_error("停止通信时发生错误，请查看日志。")
 
         self.is_sending = False
-        self._set_comm_status_indicator("#999", "通信已停止")
+        if not getattr(self, "_cleanup_in_progress", False):
+            self._set_comm_status_indicator("#999", "通信已停止")
 
         # Stop and clean up workers
         try:
@@ -1359,9 +1335,16 @@ class ACUSimulator(QMainWindow):
         except Exception:
             logger.exception("Emitting recording_toggle(False) failed")
 
-        self.start_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.on_status_updated("Communication stopped")
+        if not getattr(self, "_cleanup_in_progress", False):
+            try:
+                self.start_btn.setEnabled(True)
+                self.stop_btn.setEnabled(False)
+            except Exception:
+                pass
+            try:
+                self.on_status_updated("Communication stopped")
+            except Exception:
+                pass
 
     def send_periodic_data(self):
         """Called periodically to emit send waveform events."""
@@ -1657,6 +1640,11 @@ class ACUSimulator(QMainWindow):
                 self.parse_worker_thread.wait(500)
             except Exception:
                 pass
+        if getattr(self, "parse_worker", None) is not None:
+            try:
+                self.parse_worker.deleteLater()
+            except Exception:
+                pass
 
         # Stop format worker
         if getattr(self, "format_worker", None) is not None:
@@ -1673,6 +1661,11 @@ class ACUSimulator(QMainWindow):
                 self.format_worker_thread.wait(500)
             except Exception:
                 pass
+        if getattr(self, "format_worker", None) is not None:
+            try:
+                self.format_worker.deleteLater()
+            except Exception:
+                pass
 
         # Clear instances
         self.parse_worker = None
@@ -1680,76 +1673,126 @@ class ACUSimulator(QMainWindow):
         self.format_worker = None
         self.format_worker_thread = None
 
-    def closeEvent(self, event):
-        """Save persistent settings when the main window is closing.
-
-        This writes WaveformDisplay settings and main window geometry to
-        `QSettings`. Exceptions are swallowed to avoid preventing app close
-        in test environments.
-        """
-        # Attempt graceful shutdown: stop communication and workers first
-        try:
-            try:
-                self.stop_communication()
-            except Exception:
-                pass
-
-            # Ensure worker threads have a chance to quit
-            try:
-                if getattr(self, "parse_worker_thread", None) is not None:
-                    try:
-                        self.parse_worker_thread.quit()
-                        self.parse_worker_thread.wait(1000)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-            try:
-                if getattr(self, "format_worker_thread", None) is not None:
-                    try:
-                        self.format_worker_thread.quit()
-                        self.format_worker_thread.wait(1000)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-            # Persist UI settings
-            try:
-                if getattr(self, "waveform_display", None) is not None:
-                    self.waveform_display.save_settings()
-            except Exception:
-                pass
-
-            try:
-                settings = QSettings()
-                settings.beginGroup("ACUSimulator")
+    def _stop_timers(self):
+        """Stop recurring QTimers owned by the main window."""
+        timer_attrs = [
+            "send_timer",
+            "ui_update_timer",
+            "recv_tree_timer",
+            "_rebuild_timer",
+            "memory_check_timer",
+        ]
+        for attr in timer_attrs:
+            timer = getattr(self, attr, None)
+            if isinstance(timer, QTimer):
                 try:
-                    settings.setValue("geometry", self.saveGeometry())
-                    # persist dock layout/state as well
-                    try:
-                        settings.setValue("main_state", self.saveState())
-                    except Exception:
-                        pass
-                    try:
-                        # save current sidebar page index
-                        if getattr(self, "sidebar_nav", None) is not None:
-                            settings.setValue(
-                                "sidebar_index", self.sidebar_nav.currentRow()
-                            )
-                    except Exception:
-                        pass
+                    timer.stop()
                 except Exception:
                     pass
-                settings.endGroup()
-                settings.sync()
-            except Exception:
-                pass
+                try:
+                    timer.deleteLater()
+                except Exception:
+                    pass
+
+    def _cleanup_resources(self):
+        if getattr(self, "_cleanup_done", False):
+            return
+        self._cleanup_done = True
+        self._cleanup_in_progress = True
+
+        try:
+            self.stop_communication()
         except Exception:
             pass
 
-        # Call base implementation to ensure proper teardown
+        try:
+            self._stop_timers()
+        except Exception:
+            pass
+
+        for thread_attr in ("parse_worker_thread", "format_worker_thread"):
+            thread = getattr(self, thread_attr, None)
+            if isinstance(thread, QThread):
+                try:
+                    thread.quit()
+                    thread.wait(1000)
+                except Exception:
+                    pass
+
+        display = getattr(self, "waveform_display", None)
+        if display is not None:
+            try:
+                display.shutdown()
+            except Exception:
+                pass
+            try:
+                display.save_settings()
+            except Exception:
+                pass
+
+        self._persist_window_settings()
+
+        try:
+            handler = getattr(self, "_log_handler", None)
+            if handler is not None:
+                root_logger = logging.getLogger("ACUSim")
+                try:
+                    root_logger.removeHandler(handler)
+                except Exception:
+                    pass
+                for name in ["WaveformController", "WaveformPlot", "WaveformDisplay"]:
+                    try:
+                        logging.getLogger(name).removeHandler(handler)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        self._log_handler = None
+
+    def _persist_window_settings(self):
+        try:
+            settings = QSettings()
+            settings.beginGroup("ACUSimulator")
+            try:
+                settings.setValue("geometry", self.saveGeometry())
+                try:
+                    settings.setValue("main_state", self.saveState())
+                except Exception:
+                    pass
+                try:
+                    sidebar = getattr(self, "sidebar_nav", None)
+                    if sidebar is not None:
+                        settings.setValue("sidebar_index", sidebar.currentRow())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            settings.endGroup()
+            settings.sync()
+        except Exception:
+            pass
+
+    def _on_destroyed(self, _obj=None):
+        try:
+            self._cleanup_resources()
+        except Exception:
+            pass
+
+    def event(self, event):
+        try:
+            if event.type() == QEvent.DeferredDelete:
+                self._cleanup_resources()
+        except Exception:
+            pass
+        return super().event(event)
+
+    def closeEvent(self, event):
+        """Ensure resources are released when the window closes."""
+        try:
+            self._cleanup_resources()
+        except Exception:
+            pass
+
         try:
             super().closeEvent(event)
         except Exception:
@@ -1870,10 +1913,19 @@ class ACUSimulator(QMainWindow):
             def emit(self, record):
                 try:
                     msg = self.format(record)
-                    # Ensure append on GUI thread via QTimer.singleShot
                     from PySide6.QtCore import QTimer
 
-                    QTimer.singleShot(0, lambda: self.widget.appendPlainText(msg))
+                    target = self.widget
+
+                    def _append_safe(widget=target, text=msg):
+                        try:
+                            if widget is None or not isValid(widget):
+                                return
+                            widget.appendPlainText(text)
+                        except Exception:
+                            pass
+
+                    QTimer.singleShot(0, _append_safe)
                 except Exception:
                     pass
 
@@ -1887,6 +1939,7 @@ class ACUSimulator(QMainWindow):
             if isinstance(h, _DockLogHandler):
                 root_logger.removeHandler(h)
         root_logger.addHandler(handler)
+        self._log_handler = handler
         # Optionally attach to waveform/log related loggers
         for name in ["WaveformController", "WaveformPlot", "WaveformDisplay"]:
             try:
@@ -1943,30 +1996,6 @@ class ACUSimulator(QMainWindow):
             table.setColumnHidden(4, not self.chk_col_parsed.isChecked())
         except Exception:
             pass
-
-    def _rebuild_device_group(self) -> QGroupBox:
-        """Fallback to rebuild a minimal device group if lookup failed."""
-        device_group = QGroupBox("Device Config")
-        device_form = QFormLayout(device_group)
-        # Re-add editors if missing (attributes should already exist)
-        try:
-            device_form.addRow(QLabel("ACU IP"), self.acu_ip_edit)
-            device_form.addRow(QLabel("ACU Send Port"), self.acu_send_port_edit)
-            device_form.addRow(QLabel("ACU Receive Port"), self.acu_receive_port_edit)
-            device_form.addRow(QLabel("Target IP"), self.target_ip_edit)
-            device_form.addRow(
-                QLabel("Target Receive Port"), self.target_receive_port_edit
-            )
-            btns = QWidget()
-            bl = QHBoxLayout(btns)
-            bl.setContentsMargins(0, 0, 0, 0)
-            bl.addWidget(self.device_apply_btn)
-            bl.addWidget(self.device_save_btn)
-            bl.addWidget(self.device_restore_btn)
-            device_form.addRow(btns)
-        except Exception:
-            pass
-        return device_group
 
     def _set_comm_status_indicator(self, color: str, tooltip: str = ""):
         """Update the status indicator dot color and tooltip."""

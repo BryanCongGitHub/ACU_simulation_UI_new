@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # waveform_controller.py
 import time
 import logging
@@ -26,7 +28,7 @@ class WaveformController(QObject):
         self.start_time = time.time()
 
         # 使用单个定时器统一更新
-        self.update_timer = QTimer()
+        self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._on_update_timer)
         self.update_timer.start(200)  # 5Hz更新
 
@@ -48,6 +50,19 @@ class WaveformController(QObject):
         """停止记录"""
         self.is_recording = False
         logger.info("波形记录已停止")
+
+    def shutdown(self):
+        """Stop internal timers to avoid killTimer warnings during teardown."""
+        try:
+            if getattr(self, "update_timer", None) is not None:
+                self.update_timer.stop()
+        except Exception:
+            pass
+        try:
+            if getattr(self, "update_timer", None) is not None:
+                self.update_timer.deleteLater()
+        except Exception:
+            pass
 
     def add_send_data(self, data_buffer, timestamp=None):
         """添加发送数据"""

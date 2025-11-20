@@ -1,0 +1,25 @@
+# 优化计划清单
+
+以下任务用于指导接下来对 ACU 仿真器的重构与优化工作，按优先级大致排序：
+
+1. [x] **统一配置持久化入口**
+   - 已创建 `infra/settings_store.py`，并将 `WaveformDisplay`、`SettingsDialog`、`ACUSimulator` 主窗口的设备配置加载/保存逻辑迁移到该模块。
+   - 当前集中化 helper 支持默认值合并、分组导入导出与统一 flush，后续需要时可继续扩展更多偏好项。
+
+2. [x] **信号管理解耦**
+   - `signal_manager.py` 现从 `signal_definitions.json` 加载默认信号，并在导入阶段校验必需字段与数值类型，缺失或异常都会写入日志。
+   - 后续若需要，可在外部工具中复用该 JSON，也可继续扩展校验策略（目前覆盖 byte/bit/scale 等关键字段）。
+
+3. [x] **波形 UI 回归测试**
+   - 新增 `tests/test_waveform_display_regressions.py`，覆盖自动范围持久化、时间范围恢复、配色映射以及信号树勾选同步等核心交互。
+   - 后续如需扩展到更多 UI 细节（例如缩放操作），可在此文件继续追加场景。
+
+4. [x] **线程与定时器退出流程**
+   - `ACUSimulator` 新增 `_stop_timers()`，在 `closeEvent` 中与 worker 停止一起执行，同时调用 `WaveformDisplay.shutdown()` 关闭内部控制器定时器。
+   - `WaveformController`/`WaveformDisplay` 提供显式 `shutdown()`，确保退出时不再残留活跃定时器。
+
+5. [x] **文档与指南更新**
+   - `README_DEV.md` 新增 “Waveform display quick start” 小节，覆盖信号筛选、配色管理、范围切换与缩略图导出等操作步骤。
+   - 后续若需要对终端使用者补充 FAQ，可在该章节下继续扩展。
+
+> 完成以上项目时，请记得同步更新该清单，勾选已完成的条目或补充新的优化想法。

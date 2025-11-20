@@ -3,6 +3,29 @@ Developer notes
 
 This file documents local developer conventions and test runner tips.
 
+Waveform display quick start
+----------------------------
+这段指南用于帮助测试或演示新的波形视图配置能力。
+
+1. **信号筛选**：
+  - 左侧树按类别列出所有可用信号；勾选后即刻通过 `WaveformController` 拉取数据并在图例区生成条目。
+  - 取消勾选会同时从控制器 deselect，并移除对应曲线。
+
+2. **配色管理**：
+  - 工具栏的“配色操作…”下拉包含保存、加载、导入、导出四个动作。
+  - 保存/加载操作使用集中化设置模块，JSON 被存放在 `WaveformDisplay/palette` 键中；导入/导出针对独立 JSON 文件，字段为 `signal_id -> hex`。
+  - 图例中的色块按钮也可快速更改单条曲线颜色。
+
+3. **自动/手动范围**：
+  - “自动范围”复选框切换 Y 轴自动缩放；关闭后可通过鼠标缩放、平移调整手动范围。
+  - 所有范围设置（自动状态、时间轴下拉值、手动 splitter 配置）都会在关闭时写入 `infra/settings_store`，新实例启动后读取。
+
+4. **即时反馈**：
+  - `预览缩略图` 按钮可截取当前绘图快照，便于在 PR 或文档中展示效果。
+  - 波形数据导出支持 CSV/JSON，导出路径也会通过集中设置持久化。
+
+若遇到颜色或范围未恢复的情况，可检查 `settings_store.py` 对应的 `WaveformSettings` dataclass；测试文件 `tests/test_waveform_display_regressions.py` 提供回归样例。
+
 PYTEST_DISABLE_PLUGIN_AUTOLOAD
 -----------------------------
 Some environments (notably certain CI and Windows setups) can fail when pytest plugins attempt to write their plugin cache into site-packages directories that are not writable. To avoid intermittent hangs or errors, set:

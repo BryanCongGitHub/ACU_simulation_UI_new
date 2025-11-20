@@ -127,9 +127,12 @@ class TemplateProtocol(BaseProtocol):
             if not isinstance(byte_idx, int):
                 continue
             raw_value = int(float(value) * op.factor)
-            raw_value = max(0, min(0xFFFF, raw_value))
+            # Use struct.pack to surface struct.error on out-of-range values
+            packed = struct.pack(
+                ">H", raw_value
+            )  # will raise struct.error if raw_value not in 0..65535
             if 0 <= byte_idx < len(buf) - 1:
-                buf[byte_idx : byte_idx + 2] = raw_value.to_bytes(2, "big")
+                buf[byte_idx : byte_idx + 2] = packed
 
     def _apply_dict_packed_byte(
         self,
@@ -160,9 +163,12 @@ class TemplateProtocol(BaseProtocol):
             return
         value = control_snapshot.get(op.source, 0)
         raw_value = int(float(value) * op.factor)
-        raw_value = max(0, min(0xFFFF, raw_value))
+        # Use struct.pack to ensure invalid values raise struct.error
+        packed = struct.pack(
+            ">H", raw_value
+        )  # will raise struct.error for negative or too-large values
         if 0 <= op.offset < len(buf) - 1:
-            buf[op.offset : op.offset + 2] = raw_value.to_bytes(2, "big")
+            buf[op.offset : op.offset + 2] = packed
 
     # ------------------------------------------------------------------
     # Receive-frame helpers
