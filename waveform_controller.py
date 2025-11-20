@@ -17,9 +17,9 @@ class WaveformController(QObject):
 
     data_updated = Signal()
 
-    def __init__(self):
+    def __init__(self, signal_manager: SignalManager | None = None):
         super().__init__()
-        self.signal_manager = SignalManager()
+        self.signal_manager = signal_manager or SignalManager()
         self.data_buffer = DataBuffer(max_points=5000)
         self.selected_signals = set()
         self.is_recording = False
@@ -143,6 +143,18 @@ class WaveformController(QObject):
             elif signal_info["type"] == "analog":
                 if byte_pos + 1 < len(data_buffer):
                     raw_value = (data_buffer[byte_pos] << 8) | data_buffer[byte_pos + 1]
+
+                    scale = signal_info.get("scale")
+                    if isinstance(scale, (int, float)) and scale not in (0, 1):
+                        value = raw_value * scale
+                        logger.debug(
+                            "提取模拟信号(带比例): %s 原始=%s 比例=%s 结果=%s",
+                            signal_info.get("name"),
+                            raw_value,
+                            scale,
+                            value,
+                        )
+                        return value
 
                     # 根据信号类型进行转换
                     if "频率" in signal_info["name"]:

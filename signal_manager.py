@@ -1,5 +1,15 @@
 # signal_manager.py
+from __future__ import annotations
+
+from typing import Dict, List, Optional, TYPE_CHECKING
+
 from PySide6.QtCore import QObject
+
+if TYPE_CHECKING:
+    from controllers.protocol_field_service import ProtocolFieldService
+
+
+SignalInfo = Dict[str, object]
 
 
 class SignalManager(QObject):
@@ -7,13 +17,14 @@ class SignalManager(QObject):
 
     def __init__(self):
         super().__init__()
-        self.signals = {}
+        self.signals: Dict[str, SignalInfo] = {}
+        self._category_order: List[str] = []
         self.load_signal_definitions()
 
     def load_signal_definitions(self):
         """加载信号定义"""
         # 发送信号定义
-        send_signals = {
+        send_signals: Dict[str, SignalInfo] = {
             # 基本控制命令
             "send_bool_均衡充电模式": {
                 "name": "均衡充电模式",
@@ -239,7 +250,7 @@ class SignalManager(QObject):
         }
 
         # 接收信号定义
-        recv_signals = {
+        recv_signals: Dict[str, SignalInfo] = {
             # 状态反馈
             "recv_bool_工作允许反馈": {
                 "name": "工作允许反馈",
@@ -468,23 +479,181 @@ class SignalManager(QObject):
             },
         }
 
+        self.signals.clear()
         self.signals.update(send_signals)
         self.signals.update(recv_signals)
+        self._finalize_signals()
+
+    def _finalize_signals(self) -> None:
+        """Ensure display metadata and ordering are available for all signals."""
+
+        self._category_order = []
+        seen: set[str] = set()
+
+        for signal_id in sorted(self.signals.keys()):
+            info = self.signals[signal_id]
+            display_category = info.get("display_category") or info.get("category")
+            if not display_category:
+                display_category = "未分类"
+                info["display_category"] = display_category
+            else:
+                info.setdefault("display_category", display_category)
+
+            if display_category not in seen:
+                self._category_order.append(display_category)
+                seen.add(display_category)
+
+        per_category_counts: Dict[str, int] = {}
+        for signal_id in sorted(self.signals.keys()):
+            info = self.signals[signal_id]
+            display_category = info.get("display_category") or "未分类"
+            if not isinstance(info.get("order"), int):
+                info["order"] = per_category_counts.get(display_category, 0)
+            per_category_counts[display_category] = info["order"] + 1
+
+    def load_from_protocol(
+        self,
+        field_service: Optional[ProtocolFieldService],
+        preferences: Optional[Dict[str, object]],
+    ) -> None:
+        """Populate signal definitions from protocol metadata selections."""
+
+        if field_service is None:
+            self.load_signal_definitions()
+            return
+
+        try:
+            send_infos = field_service.send_field_infos()
+            receive_infos = field_service.receive_field_infos()
+        except Exception:
+            self.load_signal_definitions()
+            return
+
+        prefs = preferences or {}
+        self.signals.clear()
+        self._category_order = []
+
+        def _make_signal_id(prefix: str, key: str) -> str:
+            safe = (
+                str(key)
+                .replace("::", "_")
+                .replace(":", "_")
+                .replace("/", "_")
+                .replace(" ", "_")
+            )
+            return f"{prefix}_{safe}"
+
+        send_selected = prefs.get("send", []) or []
+        for order, key in enumerate(send_selected):
+            info = send_infos.get(key)
+            if info is None:
+                continue
+
+            byte_pos = info.byte if info.byte is not None else info.offset
+            if byte_pos is None and info.kind in {
+                "bool_bitset",
+                "packed_bit",
+                "word_field",
+                "scalar_word",
+            }:
+                # Without a byte or offset position we cannot sample data reliably.
+                continue
+
+            display_category = "发送帧"
+            if info.group_title:
+                display_category = f"发送帧 - {info.group_title}"
+
+            entry: SignalInfo = {
+                "name": info.label,
+                "category": "发送帧",
+                "display_category": display_category,
+                "type": (
+                    "bool" if info.kind in {"bool_bitset", "packed_bit"} else "analog"
+                ),
+                "byte": byte_pos,
+                "bit": info.bit,
+                "offset": info.offset,
+                "source": info.source,
+                "order": order,
+                "key": info.key,
+                "group_title": info.group_title,
+                "scale": info.scale,
+                "unit": info.unit,
+                "kind": info.kind,
+            }
+
+            signal_id = _make_signal_id("send", info.key)
+            self.signals[signal_id] = entry
+
+        receive_selected: set[str] = set()
+        receive_prefs = prefs.get("receive", {}) or {}
+        for value in receive_prefs.values():
+            if isinstance(value, (list, tuple, set)):
+                receive_selected.update(str(k) for k in value)
+
+        ordered_receive = sorted(
+            (info for info in receive_infos.values() if info.key in receive_selected),
+            key=lambda item: item.order,
+        )
+
+        for info in ordered_receive:
+            byte_pos = info.byte if info.byte is not None else info.offset
+            if byte_pos is None:
+                continue
+
+            section = info.section or info.category or "接收帧"
+            display_category = f"接收帧 - {section}"
+            entry = {
+                "name": info.label,
+                "category": section,
+                "display_category": display_category,
+                "type": "bool" if info.bit is not None else "analog",
+                "byte": byte_pos,
+                "bit": info.bit,
+                "offset": info.offset,
+                "source": info.source,
+                "order": info.order,
+                "key": info.key,
+                "section": info.section,
+                "category_key": info.category,
+            }
+
+            signal_id = _make_signal_id("recv", info.key)
+            self.signals[signal_id] = entry
+
+        if not self.signals:
+            self.load_signal_definitions()
+            return
+
+        self._finalize_signals()
 
     def get_signal_categories(self):
         """获取所有信号分类"""
-        categories = set()
-        for signal_info in self.signals.values():
-            categories.add(signal_info["category"])
-        return sorted(list(categories))
+        if self._category_order:
+            return list(self._category_order)
+
+        categories = sorted(
+            {
+                info.get("display_category") or info.get("category") or "未分类"
+                for info in self.signals.values()
+            }
+        )
+        self._category_order = list(categories)
+        return list(categories)
 
     def get_signals_by_category(self, category):
         """获取指定分类的信号"""
-        signals = []
+        results: List[tuple[str, SignalInfo]] = []
         for signal_id, signal_info in self.signals.items():
-            if signal_info["category"] == category:
-                signals.append((signal_id, signal_info))
-        return signals
+            display_category = (
+                signal_info.get("display_category")
+                or signal_info.get("category")
+                or "未分类"
+            )
+            if display_category == category:
+                results.append((signal_id, signal_info))
+        results.sort(key=lambda item: item[1].get("order", 0))
+        return results
 
     def get_signal_info(self, signal_id):
         """获取信号信息"""

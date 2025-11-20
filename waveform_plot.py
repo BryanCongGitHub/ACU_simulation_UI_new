@@ -3,11 +3,13 @@ import logging
 import pyqtgraph as pg
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPen
+from PySide6.QtGui import QAction, QPen
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QWidget
-from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QInputDialog
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QVBoxLayout
+from PySide6.QtWidgets import QWidget
 import time
 
 # 配置pyqtgraph
@@ -33,6 +35,9 @@ class WaveformPlotWidget(QWidget):
         self.last_plt_update = 0
         self.max_display_points = 1000
         self._auto_y_enabled = True
+        self._manual_x_override = False
+        self._programmatic_x_change = False
+        self._set_y_action = None
         self.init_ui()
 
     def init_ui(self):
@@ -72,6 +77,16 @@ class WaveformPlotWidget(QWidget):
         except Exception:
             # some headless or older environments may not support this signal
             pass
+
+        try:
+            self.main_plot.sigXRangeChanged.connect(self._on_x_range_changed)
+        except Exception:
+            pass
+
+        try:
+            self._install_viewbox_menu()
+        except Exception:
+            logger.exception("Failed to install custom viewbox menu")
         logger.info("WaveformPlotWidget UI初始化完成")
 
     def add_signal_plot(self, signal_id, signal_info):
@@ -331,14 +346,18 @@ class WaveformPlotWidget(QWidget):
 
         # 更新X轴范围
         if display_times:
-            current_time = display_times[-1]
-            view_range = self.main_plot.viewRange()
-            current_range_width = view_range[0][1] - view_range[0][0]
+            if not self._manual_x_override:
+                current_time = display_times[-1]
+                window = float(max(self.current_time_range, 1))
 
-            if current_time > view_range[0][1]:
-                self.main_plot.setXRange(
-                    current_time - current_range_width, current_time
-                )
+                self._programmatic_x_change = True
+                try:
+                    if current_time >= window:
+                        self.main_plot.setXRange(current_time - window, current_time)
+                    else:
+                        self.main_plot.setXRange(0, max(current_time, window))
+                finally:
+                    self._programmatic_x_change = False
 
     def _auto_adjust_y_range(self):
         """自动调整Y轴范围"""
@@ -385,6 +404,7 @@ class WaveformPlotWidget(QWidget):
     def set_time_range(self, seconds):
         """设置时间显示范围"""
         self.current_time_range = seconds
+        self._manual_x_override = False
 
         timestamps = self.controller.get_timestamps()
         if timestamps:
@@ -392,12 +412,16 @@ class WaveformPlotWidget(QWidget):
             current_time = timestamps[-1] if timestamps else 0
             current_relative_time = current_time - start_time
 
-            if current_relative_time > seconds:
-                self.main_plot.setXRange(
-                    current_relative_time - seconds, current_relative_time
-                )
-            else:
-                self.main_plot.setXRange(0, max(current_relative_time, 10))
+            self._programmatic_x_change = True
+            try:
+                if current_relative_time > seconds:
+                    self.main_plot.setXRange(
+                        current_relative_time - seconds, current_relative_time
+                    )
+                else:
+                    self.main_plot.setXRange(0, max(current_relative_time, 10))
+            finally:
+                self._programmatic_x_change = False
 
     def auto_range(self):
         """自动调整范围"""
@@ -413,6 +437,79 @@ class WaveformPlotWidget(QWidget):
         """清空所有绘图"""
         for signal_id in list(self.curves.keys()):
             self.remove_signal_plot(signal_id)
+
+    def _install_viewbox_menu(self):
+        vb = self.main_plot.getViewBox()
+        if vb is None:
+            return
+
+        try:
+            menu = getattr(vb, "menu", None)
+            if menu is None:
+                menu = vb.getMenu(None)
+        except Exception:
+            menu = None
+
+        if menu is None:
+            return
+
+        if self._set_y_action is None:
+            self._set_y_action = QAction("设置Y轴范围...", self)
+            self._set_y_action.triggered.connect(self._prompt_manual_y_range)
+
+        if self._set_y_action not in menu.actions():
+            menu.addSeparator()
+            menu.addAction(self._set_y_action)
+
+    def _prompt_manual_y_range(self):
+        try:
+            current_range = self.main_plot.viewRange()[1]
+        except Exception:
+            current_range = [0.0, 100.0]
+
+        try:
+            default_text = f"{current_range[0]:.3f}, {current_range[1]:.3f}"
+        except Exception:
+            default_text = "0, 100"
+
+        text, ok = QInputDialog.getText(
+            self,
+            "设置Y轴范围",
+            "输入最小值, 最大值 (例如 -10, 50):",
+            text=default_text,
+        )
+        if not ok:
+            return
+
+        try:
+            parts = [float(part.strip()) for part in text.split(",") if part.strip()]
+            if len(parts) != 2 or parts[0] >= parts[1]:
+                raise ValueError
+        except ValueError:
+            QMessageBox.warning(
+                self, "设置Y轴范围", "请输入两个递增的数值，例如 -10, 50"
+            )
+            return
+
+        self.set_auto_y_enabled(False)
+        try:
+            parent = self.parent()
+            if parent is not None and hasattr(parent, "auto_range_check"):
+                block = parent.auto_range_check.blockSignals(True)
+                parent.auto_range_check.setChecked(False)
+                parent.auto_range_check.blockSignals(block)
+        except Exception:
+            pass
+
+        try:
+            self.main_plot.setYRange(parts[0], parts[1])
+        except Exception:
+            QMessageBox.warning(self, "设置Y轴范围", "无法应用指定的范围")
+
+    def _on_x_range_changed(self, *args):
+        if self._programmatic_x_change:
+            return
+        self._manual_x_override = True
 
     def _on_scene_mouse_moved(self, pos):
         """Capture hover position and nearest sample values.

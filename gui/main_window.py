@@ -301,7 +301,11 @@ class ACUSimulator(QMainWindow):
         self.last_memory_check = time.time()
 
         self.view_bus = view_bus or ViewEventBus()
-        self.waveform_display = WaveformDisplay(event_bus=self.view_bus)
+        self.waveform_display = WaveformDisplay(
+            event_bus=self.view_bus,
+            field_service=self._protocol_field_service,
+            field_preferences=self._protocol_field_prefs,
+        )
 
         self.init_ui()
         self.init_data()
@@ -1122,6 +1126,12 @@ class ACUSimulator(QMainWindow):
         self._update_receive_selection_cache()
         self._build_send_config_groups()
         self._reset_recv_tree_view()
+        try:
+            self.waveform_display.apply_field_preferences(
+                self._protocol_field_service, self._protocol_field_prefs
+            )
+        except Exception:
+            logger.exception("Failed to refresh waveform signal preferences")
 
     def _reset_recv_tree_view(self) -> None:
         tree = getattr(self, "recv_tree", None)
