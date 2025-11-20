@@ -38,6 +38,7 @@ class WaveformPlotWidget(QWidget):
         self._manual_x_override = False
         self._programmatic_x_change = False
         self._set_y_action = None
+        self._origin_timestamp = None  # track earliest timestamp ever seen
         self.init_ui()
 
     def init_ui(self):
@@ -267,8 +268,14 @@ class WaveformPlotWidget(QWidget):
         if not timestamps or len(timestamps) < 2:
             return
 
-        start_time = timestamps[0]
-        relative_times = [t - start_time for t in timestamps]
+        # keep a stable origin so the x-axis can continue to grow even if
+        # we drop older samples for rendering performance
+        ts0 = timestamps[0]
+        if self._origin_timestamp is None or ts0 < self._origin_timestamp:
+            self._origin_timestamp = ts0
+
+        origin = self._origin_timestamp
+        relative_times = [t - origin for t in timestamps]
 
         # 限制显示点数
         if len(relative_times) > self.max_display_points:
@@ -435,6 +442,7 @@ class WaveformPlotWidget(QWidget):
 
     def clear_plots(self):
         """清空所有绘图"""
+        self._origin_timestamp = None
         for signal_id in list(self.curves.keys()):
             self.remove_signal_plot(signal_id)
 
