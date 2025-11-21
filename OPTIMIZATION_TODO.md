@@ -32,3 +32,6 @@
        保证显示跨度与所选时间窗口一致。
     - 状态：已在 `waveform_plot.py` 中实现基于时间窗口的索引选择与按块下采样逻辑（需在长期运行下验证性能）。
     - 后续：添加回归测试，监控长时间运行内存/CPU，必要时改为更复杂的聚合策略（如每块取平均或最大值）。
+   - 回归测试已添加：`tests/test_waveform_downsampling.py` 覆盖多种采样间隔与时间窗口组合，确保 `DataBuffer.get_window_indices` 与绘图下采样逻辑在高/中/低采样率下按预期工作。
+   - CI：已在 `.github/workflows/ci.yml` 中新增 `waveform-regression` job（矩阵覆盖 sample-intervals），用于在 CI 中并行验证下采样回归。该 job 使用 `xvfb` 在无头环境运行特定回归测试，以避免在 PR 主 CI 中阻塞所有测试（可按需改为 nightly）。
+   - 状态：回归测试与 CI job 已添加并在本地通过；建议在合并到主分支后观察 CI 运行成本并决定是否将该 job 调整为 nightly 触发。
