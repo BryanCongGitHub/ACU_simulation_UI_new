@@ -14,6 +14,15 @@ from PySide6.QtCore import QSettings
 import json
 import logging
 
+from infra.settings_store import (
+    apply_default_device_config,
+    apply_default_waveform_settings,
+    clear_all_settings,
+    export_to_ini,
+    import_from_ini,
+    reset_groups,
+)
+
 logger = logging.getLogger("SettingsDialog")
 
 
@@ -151,31 +160,28 @@ class SettingsDialog(QDialog):
             return {}
 
     def _on_reset_clicked(self):
-        chosen = []
+        summary: list[str] = []
         try:
-            settings = QSettings()
+            groups: list[str] = []
             if self.reset_waveform.isChecked():
-                settings.remove("WaveformDisplay")
-                chosen.append("WaveformDisplay")
+                groups.append("WaveformDisplay")
             if self.reset_device.isChecked():
-                settings.remove("ACUSimulator")
-                # device config stored under ACUSimulator/DeviceConfig
-                chosen.append("ACUSimulator")
+                groups.append("ACUSimulator")
+
+            if groups:
+                reset_groups(groups)
+                summary.extend(groups)
+
             if self.reset_app.isChecked():
-                settings.clear()
-                chosen.append("All (cleared)")
-            try:
-                settings.sync()
-            except Exception:
-                pass
+                clear_all_settings()
+                summary.append("All")
         except Exception as exc:
             logger.exception("Failed to reset settings: %s", exc)
             QMessageBox.critical(self, "Error", f"Reset failed: {exc}")
             return
 
-        QMessageBox.information(
-            self, "Reset", f"Reset: {', '.join(chosen) if chosen else 'None'}"
-        )
+        message = ", ".join(summary) if summary else "None"
+        QMessageBox.information(self, "Reset", f"Reset: {message}")
         # close dialog after reset
         self.accept()
 
@@ -191,39 +197,16 @@ class SettingsDialog(QDialog):
             if not path:
                 return
 
-            src = QSettings()
-            out = QSettings(path, QSettings.IniFormat)
-
-            prefixes = []
+            groups = []
             if self.reset_waveform.isChecked():
-                prefixes.append("WaveformDisplay")
+                groups.append("WaveformDisplay")
             if self.reset_device.isChecked():
-                prefixes.append("ACUSimulator")
+                groups.append("ACUSimulator")
+
             if self.reset_app.isChecked():
-                # export everything
-                prefixes = None
-
-            all_keys = src.allKeys()
-            if prefixes is None:
-                # copy all
-                for k in all_keys:
-                    try:
-                        out.setValue(k, src.value(k))
-                    except Exception:
-                        pass
+                export_to_ini(path, None)
             else:
-                for p in prefixes:
-                    for k in all_keys:
-                        if k == p or k.startswith(p + "/"):
-                            try:
-                                out.setValue(k, src.value(k))
-                            except Exception:
-                                pass
-
-            try:
-                out.sync()
-            except Exception:
-                pass
+                export_to_ini(path, groups)
 
             QMessageBox.information(self, "Export", f"Settings exported to: {path}")
         except Exception as exc:
@@ -239,34 +222,16 @@ class SettingsDialog(QDialog):
             if not path:
                 return
 
-            src = QSettings(path, QSettings.IniFormat)
-            dst = QSettings()
-
-            prefixes = []
+            groups = []
             if self.reset_waveform.isChecked():
-                prefixes.append("WaveformDisplay")
+                groups.append("WaveformDisplay")
             if self.reset_device.isChecked():
-                prefixes.append("ACUSimulator")
-            if self.reset_app.isChecked():
-                prefixes = None
+                groups.append("ACUSimulator")
 
-            for k in src.allKeys():
-                if prefixes is None:
-                    try:
-                        dst.setValue(k, src.value(k))
-                    except Exception:
-                        pass
-                else:
-                    for p in prefixes:
-                        if k == p or k.startswith(p + "/"):
-                            try:
-                                dst.setValue(k, src.value(k))
-                            except Exception:
-                                pass
-            try:
-                dst.sync()
-            except Exception:
-                pass
+            if self.reset_app.isChecked():
+                import_from_ini(path, None)
+            else:
+                import_from_ini(path, groups)
 
             QMessageBox.information(self, "Import", f"Settings imported from: {path}")
         except Exception as exc:
@@ -276,37 +241,8 @@ class SettingsDialog(QDialog):
     def _on_restore_defaults_clicked(self):
         """Write a set of recommended defaults into QSettings for common groups."""
         try:
-            settings = QSettings()
-            # Waveform defaults
-            settings.beginGroup("WaveformDisplay")
-            try:
-                settings.setValue("time_range", "10分钟")
-                settings.setValue("auto_range", True)
-                settings.setValue("selected_signals", [])
-            except Exception:
-                pass
-            settings.endGroup()
-
-            # Device defaults (ACUSimulator/DeviceConfig)
-            settings.beginGroup("ACUSimulator")
-            try:
-                settings.beginGroup("DeviceConfig")
-                settings.setValue("acu_ip", "10.2.0.1")
-                settings.setValue("acu_send_port", 49152)
-                settings.setValue("acu_receive_port", 49156)
-                settings.setValue("target_ip", "10.2.0.5")
-                settings.setValue("target_receive_port", 49152)
-                settings.endGroup()
-            except Exception:
-                try:
-                    settings.endGroup()
-                except Exception:
-                    pass
-
-            try:
-                settings.sync()
-            except Exception:
-                pass
+            apply_default_waveform_settings()
+            apply_default_device_config()
 
             QMessageBox.information(
                 self, "Defaults", "Recommended defaults restored to settings."
@@ -346,12 +282,7 @@ class SettingsDialog(QDialog):
     def reset_all_settings():
         """Convenience to clear all QSettings groups."""
         try:
-            settings = QSettings()
-            settings.clear()
-            try:
-                settings.sync()
-            except Exception:
-                pass
+            clear_all_settings()
             return True
         except Exception:
             return False

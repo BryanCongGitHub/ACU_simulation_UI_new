@@ -50,7 +50,7 @@ def test_export_csv_header(qtbot, monkeypatch, tmp_path):
     # assert file exists and header contains display name
     assert csv_file.exists(), "CSV file was not created"
 
-    with open(csv_file, newline="", encoding="utf-8") as f:
+    with open(csv_file, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
         header = next(reader)
 

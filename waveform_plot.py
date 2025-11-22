@@ -3,10 +3,14 @@ import logging
 import pyqtgraph as pg
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPen
+from PySide6.QtGui import QAction, QPen
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QInputDialog
+from PySide6.QtWidgets import QMessageBox
 from PySide6.QtWidgets import QVBoxLayout
+from PySide6.QtWidgets import QWidget
+import time
 
 # 配置pyqtgraph
 pg.setConfigOptions(
@@ -30,6 +34,11 @@ class WaveformPlotWidget(QWidget):
         self.current_time_range = 600
         self.last_plt_update = 0
         self.max_display_points = 1000
+        self._auto_y_enabled = True
+        self._manual_x_override = False
+        self._programmatic_x_change = False
+        self._set_y_action = None
+        self._origin_timestamp = None  # track earliest timestamp ever seen
         self.init_ui()
 
     def init_ui(self):
@@ -53,6 +62,15 @@ class WaveformPlotWidget(QWidget):
         layout.addWidget(self.graphics_view)
         # store last hover info for tests/interaction
         self.last_hover = {}
+        # UI hover label (throttled updates)
+        self.hover_label = QLabel("", self.graphics_view)
+        self.hover_label.setVisible(False)
+        self.hover_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.hover_label.setStyleSheet(
+            "background: rgba(255,255,225,230); border: 1px solid #888; padding: 4px;"
+        )
+        # last hover UI update timestamp (ms)
+        self._last_hover_update = 0
 
         # connect mouse move on the scene to capture hover info
         try:
@@ -60,6 +78,16 @@ class WaveformPlotWidget(QWidget):
         except Exception:
             # some headless or older environments may not support this signal
             pass
+
+        try:
+            self.main_plot.sigXRangeChanged.connect(self._on_x_range_changed)
+        except Exception:
+            pass
+
+        try:
+            self._install_viewbox_menu()
+        except Exception:
+            logger.exception("Failed to install custom viewbox menu")
         logger.info("WaveformPlotWidget UI初始化完成")
 
     def add_signal_plot(self, signal_id, signal_info):
@@ -96,9 +124,52 @@ class WaveformPlotWidget(QWidget):
 
         curve = pg.PlotDataItem(pen=pen, name=signal_info["name"])
 
+        # prepare optional band items (upper/lower + fill) to preserve min/max per block
+        band_upper = None
+        band_lower = None
+        band_fill = None
+        try:
+            # create cosmetic pens (width 0) so lines remain thin in pixels
+            up_pen = QPen(QColor(color))
+            up_pen.setWidth(0)
+            up_pen.setCosmetic(True)
+            band_upper = pg.PlotDataItem(pen=up_pen)
+            band_upper.setZValue(curve.zValue() - 1)
+
+            low_pen = QPen(QColor(color))
+            low_pen.setWidth(0)
+            low_pen.setCosmetic(True)
+            band_lower = pg.PlotDataItem(pen=low_pen)
+            band_lower.setZValue(curve.zValue() - 1)
+
+            # semi-transparent brush for fill (use alpha so band isn't visually thick)
+            fill_color = QColor(color)
+            fill_color.setAlpha(60)  # ~25% opaque
+            brush = pg.mkBrush(fill_color)
+
+            # try to create FillBetweenItem if available
+            try:
+                band_fill = pg.FillBetweenItem(band_upper, band_lower, brush=brush)
+            except Exception:
+                band_fill = None
+        except Exception:
+            band_upper = band_lower = band_fill = None
+
         self.main_plot.addItem(curve)
+        if band_upper is not None and band_lower is not None:
+            try:
+                self.main_plot.addItem(band_upper)
+                self.main_plot.addItem(band_lower)
+                if band_fill is not None:
+                    self.main_plot.addItem(band_fill)
+            except Exception:
+                pass
+
         self.curves[signal_id] = {
             "curve": curve,
+            "band_upper": band_upper,
+            "band_lower": band_lower,
+            "band_fill": band_fill,
             "type": signal_info["type"],
             "info": signal_info,
             "color": color,
@@ -142,6 +213,37 @@ class WaveformPlotWidget(QWidget):
                     curve_info["curve"] = new_curve
                 except Exception:
                     pass
+            # update band items if present
+            try:
+                upper = curve_info.get("band_upper")
+                lower = curve_info.get("band_lower")
+                if upper is not None:
+                    try:
+                        pen = QPen(QColor(color_hex))
+                        pen.setWidth(0)
+                        pen.setCosmetic(True)
+                        upper.setPen(pen)
+                    except Exception:
+                        pass
+                if lower is not None:
+                    try:
+                        pen = QPen(QColor(color_hex))
+                        pen.setWidth(0)
+                        pen.setCosmetic(True)
+                        lower.setPen(pen)
+                    except Exception:
+                        pass
+                fill = curve_info.get("band_fill")
+                if fill is not None:
+                    try:
+                        fc = QColor(color_hex)
+                        fc.setAlpha(60)
+                        brush = pg.mkBrush(fc)
+                        fill.setBrush(brush)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             logger.exception("设置曲线颜色失败")
 
@@ -240,15 +342,53 @@ class WaveformPlotWidget(QWidget):
         if not timestamps or len(timestamps) < 2:
             return
 
-        start_time = timestamps[0]
-        relative_times = [t - start_time for t in timestamps]
+        # keep a stable origin so the x-axis can continue to grow even if
+        # we drop older samples for rendering performance
+        ts0 = timestamps[0]
+        if self._origin_timestamp is None or ts0 < self._origin_timestamp:
+            self._origin_timestamp = ts0
 
-        # 限制显示点数
-        if len(relative_times) > self.max_display_points:
-            start_idx = len(relative_times) - self.max_display_points
-            display_times = relative_times[start_idx:]
-        else:
-            display_times = relative_times
+        origin = self._origin_timestamp
+        relative_times = [t - origin for t in timestamps]
+
+        # 选择要显示的时间段：优先使用 DataBuffer 提供的索引选择器（包含基于采样估算的下采样）
+        indices = []
+        try:
+            db = getattr(self.controller, "data_buffer", None)
+            if db is not None and hasattr(db, "get_window_indices"):
+                indices = db.get_window_indices(
+                    self.current_time_range, self.max_display_points
+                )
+                # convert indices to relative times w.r.t origin
+                if indices:
+                    timestamps = self.controller.get_timestamps()
+                    # origin already tracked in widget
+                    origin = self._origin_timestamp or (
+                        timestamps[0] if timestamps else 0
+                    )
+                    display_times = [
+                        timestamps[i] - origin for i in indices if i < len(timestamps)
+                    ]
+                else:
+                    display_times = []
+            else:
+                # fallback to previous behavior if helper not available
+                latest_rel = relative_times[-1] if relative_times else 0
+                display_start = max(0.0, latest_rel - float(self.current_time_range))
+                indices = [
+                    i for i, t in enumerate(relative_times) if t >= display_start
+                ]
+                if not indices:
+                    return
+                if len(indices) > self.max_display_points:
+                    import math
+
+                    step = math.ceil(len(indices) / float(self.max_display_points))
+                    indices = indices[::step]
+                display_times = [relative_times[i] for i in indices]
+        except Exception:
+            # on any error, abort plotting
+            return
 
         # 为每个信号更新数据
         for signal_id, curve_info in self.curves.items():
@@ -257,11 +397,20 @@ class WaveformPlotWidget(QWidget):
                 if not values:
                     continue
 
-                if len(values) > self.max_display_points:
-                    value_start = len(values) - self.max_display_points
-                    display_values = values[value_start:]
-                else:
-                    display_values = values
+                # 以与 display_times 相同的索引从 values 中抽取数据点
+                # 如果数据长度与 timestamps 对齐（DataBuffer 保证），直接按 indices 抽取
+                try:
+                    values_list = list(values)
+                    display_values = [
+                        values_list[i] for i in indices if i < len(values_list)
+                    ]
+                except Exception:
+                    # 退回到原先的末尾切片行为（降级兼容）
+                    if len(values) > self.max_display_points:
+                        value_start = len(values) - self.max_display_points
+                        display_values = values[value_start:]
+                    else:
+                        display_values = values
 
                 # 确保数据长度匹配
                 min_len = min(len(display_times), len(display_values))
@@ -305,27 +454,111 @@ class WaveformPlotWidget(QWidget):
                         curve_info["curve"].setData(step_times, step_values)
 
                 else:
-                    # 模拟信号：直接绘制
-                    plot_times = np.array(plot_times)
-                    plot_values = np.array(plot_values)
-                    curve_info["curve"].setData(plot_times, plot_values)
+                    # 模拟信号：按块计算 (min, max, last) 并绘制带状区间 + last 折线
+                    # 为此需要知道 full blocks 对应的索引块（由 indices 推断）
+                    try:
+                        # 如果 controller 提供 data_buffer，重建 full indices -> blocks
+                        db = getattr(self.controller, "data_buffer", None)
+                        timestamps = self.controller.get_timestamps()
+                        if db is not None and timestamps:
+                            # compute full indices in window
+                            latest = timestamps[-1]
+                            start = latest - float(self.current_time_range)
+                            full_indices = [
+                                i for i, t in enumerate(timestamps) if t >= start
+                            ]
+                            if not full_indices:
+                                continue
+                            if len(full_indices) <= self.max_display_points:
+                                blocks = [[i] for i in full_indices]
+                            else:
+                                import math
+
+                                step = math.ceil(
+                                    len(full_indices) / float(self.max_display_points)
+                                )
+                                blocks = [
+                                    full_indices[i : i + step]
+                                    for i in range(0, len(full_indices), step)
+                                ]
+                        else:
+                            # fallback: evenly map display_values to display_times
+                            blocks = None
+
+                        values_list = list(values)
+
+                        if blocks:
+                            mins = []
+                            maxs = []
+                            lasts = []
+                            times = []
+                            for blk in blocks:
+                                blk_vals = [
+                                    values_list[k] for k in blk if k < len(values_list)
+                                ]
+                                if not blk_vals:
+                                    continue
+                                mins.append(min(blk_vals))
+                                maxs.append(max(blk_vals))
+                                lasts.append(blk_vals[-1])
+                                # time representative - use last timestamp in block
+                                times.append((timestamps[blk[-1]] - origin))
+
+                            if not times:
+                                continue
+
+                            times_arr = np.array(times)
+                            lasts_arr = np.array(lasts)
+                            mins_arr = np.array(mins)
+                            maxs_arr = np.array(maxs)
+
+                            # set main curve to last values
+                            try:
+                                curve_info["curve"].setData(times_arr, lasts_arr)
+                            except Exception:
+                                pass
+
+                            # set band curves and fill if available
+                            upper = curve_info.get("band_upper")
+                            lower = curve_info.get("band_lower")
+                            try:
+                                if upper is not None:
+                                    upper.setData(times_arr, maxs_arr)
+                                if lower is not None:
+                                    lower.setData(times_arr, mins_arr)
+                                # If FillBetweenItem is unavailable we could draw
+                                # a semi-transparent polygon manually as fallback.
+                            except Exception:
+                                pass
+                        else:
+                            # fallback to simple plotting
+                            plot_times = np.array(plot_times)
+                            plot_values = np.array(plot_values)
+                            curve_info["curve"].setData(plot_times, plot_values)
+                    except Exception as e:
+                        logger.exception(f"模拟信号带状绘制失败: {e}")
 
             except Exception as e:
                 logger.error(f"更新信号 {signal_id} 失败: {e}")
 
         # 自动调整Y轴范围
-        self._auto_adjust_y_range()
+        if self._auto_y_enabled:
+            self._auto_adjust_y_range()
 
         # 更新X轴范围
         if display_times:
-            current_time = display_times[-1]
-            view_range = self.main_plot.viewRange()
-            current_range_width = view_range[0][1] - view_range[0][0]
+            if not self._manual_x_override:
+                current_time = display_times[-1]
+                window = float(max(self.current_time_range, 1))
 
-            if current_time > view_range[0][1]:
-                self.main_plot.setXRange(
-                    current_time - current_range_width, current_time
-                )
+                self._programmatic_x_change = True
+                try:
+                    if current_time >= window:
+                        self.main_plot.setXRange(current_time - window, current_time)
+                    else:
+                        self.main_plot.setXRange(0, max(current_time, window))
+                finally:
+                    self._programmatic_x_change = False
 
     def _auto_adjust_y_range(self):
         """自动调整Y轴范围"""
@@ -333,49 +566,46 @@ class WaveformPlotWidget(QWidget):
             return
 
         # 检查信号类型
-        has_bool = any(
-            curve_info["type"] == "bool" for curve_info in self.curves.values()
-        )
-        has_analog = any(
-            curve_info["type"] != "bool" for curve_info in self.curves.values()
-        )
+        has_bool = False
+        analog_values = []
+        for signal_id, curve_info in self.curves.items():
+            if curve_info["type"] == "bool":
+                has_bool = True
+                continue
+            values = self.controller.get_signal_data(signal_id)
+            if values:
+                recent_values = values[-50:] if len(values) > 50 else values
+                analog_values.extend(recent_values)
 
-        if has_bool and not has_analog:
+        if analog_values:
+            min_val = min(analog_values)
+            max_val = max(analog_values)
+
+            if abs(max_val - min_val) < 0.01:
+                center = (min_val + max_val) / 2
+                min_range = center - 1
+                max_range = center + 1
+            else:
+                span = max_val - min_val
+                margin = max(span * 0.1, 0.1)
+                min_range = min_val - margin
+                max_range = max_val + margin
+
+            if has_bool:
+                min_range = min(min_range, -0.2)
+                max_range = max(max_range, 1.2)
+
+            self.main_plot.setYRange(min_range, max_range)
+        elif has_bool:
             # 只有布尔信号
             self.main_plot.setYRange(-0.2, 1.2)
-
-        elif has_analog and not has_bool:
-            # 只有模拟信号
-            all_values = []
-            for signal_id, curve_info in self.curves.items():
-                if curve_info["type"] != "bool":
-                    values = self.controller.get_signal_data(signal_id)
-                    if values and len(values) > 0:
-                        # 取最近的数据点
-                        recent_values = values[-50:] if len(values) > 50 else values
-                        all_values.extend(recent_values)
-
-            if all_values:
-                min_val = min(all_values)
-                max_val = max(all_values)
-
-                if abs(max_val - min_val) < 0.01:
-                    # 数据基本不变，设置固定范围
-                    center = (min_val + max_val) / 2
-                    self.main_plot.setYRange(center - 1, center + 1)
-                else:
-                    margin = max((max_val - min_val) * 0.1, 0.1)
-                    self.main_plot.setYRange(min_val - margin, max_val + margin)
-            else:
-                self.main_plot.setYRange(0, 100)
-
         else:
-            # 混合信号
-            self.main_plot.setYRange(-1, 100)
+            self.main_plot.setYRange(0, 100)
 
     def set_time_range(self, seconds):
         """设置时间显示范围"""
         self.current_time_range = seconds
+        self._manual_x_override = False
 
         timestamps = self.controller.get_timestamps()
         if timestamps:
@@ -383,21 +613,105 @@ class WaveformPlotWidget(QWidget):
             current_time = timestamps[-1] if timestamps else 0
             current_relative_time = current_time - start_time
 
-            if current_relative_time > seconds:
-                self.main_plot.setXRange(
-                    current_relative_time - seconds, current_relative_time
-                )
-            else:
-                self.main_plot.setXRange(0, max(current_relative_time, 10))
+            self._programmatic_x_change = True
+            try:
+                if current_relative_time > seconds:
+                    self.main_plot.setXRange(
+                        current_relative_time - seconds, current_relative_time
+                    )
+                else:
+                    self.main_plot.setXRange(0, max(current_relative_time, 10))
+            finally:
+                self._programmatic_x_change = False
 
     def auto_range(self):
         """自动调整范围"""
+        if not self._auto_y_enabled:
+            return
         self._auto_adjust_y_range()
+
+    def set_auto_y_enabled(self, enabled: bool):
+        """Enable or disable automatic Y range updates."""
+        self._auto_y_enabled = bool(enabled)
 
     def clear_plots(self):
         """清空所有绘图"""
+        self._origin_timestamp = None
         for signal_id in list(self.curves.keys()):
             self.remove_signal_plot(signal_id)
+
+    def _install_viewbox_menu(self):
+        vb = self.main_plot.getViewBox()
+        if vb is None:
+            return
+
+        try:
+            menu = getattr(vb, "menu", None)
+            if menu is None:
+                menu = vb.getMenu(None)
+        except Exception:
+            menu = None
+
+        if menu is None:
+            return
+
+        if self._set_y_action is None:
+            self._set_y_action = QAction("设置Y轴范围...", self)
+            self._set_y_action.triggered.connect(self._prompt_manual_y_range)
+
+        if self._set_y_action not in menu.actions():
+            menu.addSeparator()
+            menu.addAction(self._set_y_action)
+
+    def _prompt_manual_y_range(self):
+        try:
+            current_range = self.main_plot.viewRange()[1]
+        except Exception:
+            current_range = [0.0, 100.0]
+
+        try:
+            default_text = f"{current_range[0]:.3f}, {current_range[1]:.3f}"
+        except Exception:
+            default_text = "0, 100"
+
+        text, ok = QInputDialog.getText(
+            self,
+            "设置Y轴范围",
+            "输入最小值, 最大值 (例如 -10, 50):",
+            text=default_text,
+        )
+        if not ok:
+            return
+
+        try:
+            parts = [float(part.strip()) for part in text.split(",") if part.strip()]
+            if len(parts) != 2 or parts[0] >= parts[1]:
+                raise ValueError
+        except ValueError:
+            QMessageBox.warning(
+                self, "设置Y轴范围", "请输入两个递增的数值，例如 -10, 50"
+            )
+            return
+
+        self.set_auto_y_enabled(False)
+        try:
+            parent = self.parent()
+            if parent is not None and hasattr(parent, "auto_range_check"):
+                block = parent.auto_range_check.blockSignals(True)
+                parent.auto_range_check.setChecked(False)
+                parent.auto_range_check.blockSignals(block)
+        except Exception:
+            pass
+
+        try:
+            self.main_plot.setYRange(parts[0], parts[1])
+        except Exception:
+            QMessageBox.warning(self, "设置Y轴范围", "无法应用指定的范围")
+
+    def _on_x_range_changed(self, *args):
+        if self._programmatic_x_change:
+            return
+        self._manual_x_override = True
 
     def _on_scene_mouse_moved(self, pos):
         """Capture hover position and nearest sample values.
@@ -442,7 +756,65 @@ class WaveformPlotWidget(QWidget):
                     # ignore individual signal errors
                     pass
 
+            # always update last_hover for tests or other logic
             self.last_hover = info
+
+            # Throttle UI updates to avoid high-frequency redraws
+            try:
+                current_ms = int(time.time() * 1000)
+                if current_ms - self._last_hover_update >= 150:
+                    # Build a short tooltip text (limit to first 6 signals)
+                    lines = []
+                    for i, sid in enumerate(sorted(info.keys())):
+                        if i >= 6:
+                            break
+                        val = info[sid]["value"]
+                        try:
+                            # try to recover a friendly name from curves
+                            key = int(sid) if sid.isdigit() else sid
+                            name = (
+                                self.curves.get(key, self.curves.get(sid, {}))
+                                .get("info", {})
+                                .get("name", str(sid))
+                            )
+                        except Exception:
+                            name = str(sid)
+                        lines.append(f"{name}: {val}")
+
+                    if lines:
+                        txt = "\n".join(lines)
+                        # try to position label near the pointer
+                        try:
+                            views = self.graphics_view.scene().views()
+                            if views:
+                                view_widget = views[0]
+                                widget_pt = view_widget.mapFromScene(pos)
+                                self.hover_label.setText(txt)
+                                self.hover_label.adjustSize()
+                                # place with small offset
+                                self.hover_label.move(
+                                    widget_pt.x() + 12, widget_pt.y() + 12
+                                )
+                                self.hover_label.setVisible(True)
+                        except Exception:
+                            # fallback to Qt tooltip if positioning fails
+                            try:
+                                from PySide6.QtWidgets import QToolTip
+
+                                QToolTip.showText(self.mapToGlobal(self.pos()), txt)
+                            except Exception:
+                                pass
+
+                    else:
+                        try:
+                            self.hover_label.setVisible(False)
+                        except Exception:
+                            pass
+
+                    self._last_hover_update = current_ms
+            except Exception:
+                # swallow UI hover exceptions
+                pass
         except Exception:
             # never raise from hover handling
             pass

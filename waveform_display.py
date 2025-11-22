@@ -1,4 +1,6 @@
 # waveform_display.py
+from typing import Dict, Optional
+
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -14,9 +16,14 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtCore import QSettings
 from waveform_controller import WaveformController
+from signal_manager import SignalManager
 from waveform_plot import WaveformPlotWidget
+from infra.settings_store import (
+    WaveformSettings,
+    load_waveform_settings,
+    save_waveform_settings,
+)
 import logging
 
 # 创建日志记录器
@@ -26,12 +33,28 @@ logger = logging.getLogger("WaveformDisplay")
 class WaveformDisplay(QWidget):
     """波形显示主界面"""
 
-    def __init__(self, parent=None, event_bus=None):
+    def __init__(
+        self,
+        parent=None,
+        event_bus=None,
+        field_service=None,
+        field_preferences=None,
+    ):
         super().__init__(parent)
-        self.controller = WaveformController()
+        self.signal_manager = SignalManager()
+        self.controller = WaveformController(signal_manager=self.signal_manager)
         self.event_bus = None
+        self._field_service = field_service
+        self._field_preferences = field_preferences or {}
+        self._populating_tree = False
+        self._settings_dialog_cls = None
         self.init_ui()
         self.setup_connections()
+        if field_service is not None:
+            try:
+                self.apply_field_preferences(field_service, self._field_preferences)
+            except Exception:
+                logger.exception("Failed to apply protocol field preferences")
         self.bind_event_bus(event_bus)
         # Load persisted UI/settings
         try:
@@ -226,39 +249,17 @@ class WaveformDisplay(QWidget):
         layout.addWidget(self.theme_combo)
         layout.addWidget(self.legend_check)
         layout.addWidget(self.grid_btn)
-        # palette save/load
-        self.save_palette_btn = QPushButton("保存配色")
-        self.save_palette_btn.setToolTip("保存当前信号颜色映射到设置")
-        try:
-            self.save_palette_btn.setAccessibleName("save_palette")
-            self.save_palette_btn.setShortcut("Ctrl+Shift+S")
-        except Exception:
-            pass
-        self.load_palette_btn = QPushButton("加载配色")
-        self.load_palette_btn.setToolTip("从设置中加载信号颜色映射")
-        try:
-            self.load_palette_btn.setAccessibleName("load_palette")
-            self.load_palette_btn.setShortcut("Ctrl+Shift+L")
-        except Exception:
-            pass
-        self.export_palette_btn = QPushButton("导出配色")
-        self.export_palette_btn.setToolTip("将当前配色导出为 JSON 文件以便共享或备份")
-        try:
-            self.export_palette_btn.setAccessibleName("export_palette")
-            self.export_palette_btn.setShortcut("Ctrl+Shift+E")
-        except Exception:
-            pass
-        self.import_palette_btn = QPushButton("导入配色")
-        self.import_palette_btn.setToolTip("从 JSON 文件导入配色并应用到当前视图")
-        try:
-            self.import_palette_btn.setAccessibleName("import_palette")
-            self.import_palette_btn.setShortcut("Ctrl+Shift+I")
-        except Exception:
-            pass
-        layout.addWidget(self.save_palette_btn)
-        layout.addWidget(self.load_palette_btn)
-        layout.addWidget(self.export_palette_btn)
-        layout.addWidget(self.import_palette_btn)
+
+        # palette actions condensed into a combo box to save toolbar space
+        self.palette_combo = QComboBox()
+        self.palette_combo.setMinimumWidth(120)
+        self.palette_combo.addItem("配色操作…", None)
+        self.palette_combo.addItem("保存配色", "save")
+        self.palette_combo.addItem("加载配色", "load")
+        self.palette_combo.addItem("导出配色", "export")
+        self.palette_combo.addItem("导入配色", "import")
+        self.palette_combo.setToolTip("选择配色相关操作")
+        layout.addWidget(self.palette_combo)
 
         return toolbar
 
@@ -270,30 +271,117 @@ class WaveformDisplay(QWidget):
         tree.setColumnWidth(1, 60)
         tree.setColumnWidth(2, 70)
         tree.setMinimumHeight(600)  # 增加最小高度
+        self._populate_signal_tree(tree)
+        return tree
 
-        categories = self.controller.signal_manager.get_signal_categories()
-        for category in categories:
-            category_item = QTreeWidgetItem(tree, [category, "", ""])
-            category_item.setExpanded(True)
-            signals = self.controller.signal_manager.get_signals_by_category(category)
+    def _populate_signal_tree(self, tree: Optional[QTreeWidget] = None) -> None:
+        tree = tree or getattr(self, "signal_tree", None)
+        if tree is None:
+            return
 
-            for signal_id, signal_info in signals:
-                signal_item = QTreeWidgetItem(
-                    category_item, [signal_info["name"], "○", "--"]
+        self._populating_tree = True
+        try:
+            try:
+                tree.blockSignals(True)
+            except Exception:
+                pass
+
+            tree.clear()
+
+            available_ids = set(self.controller.signal_manager.signals.keys())
+            for sid in list(self.controller.get_selected_signals()):
+                if sid not in available_ids:
+                    self.controller.deselect_signal(sid)
+
+            selected = set(self.controller.get_selected_signals())
+            categories = self.controller.signal_manager.get_signal_categories()
+            for category in categories:
+                category_item = QTreeWidgetItem(tree, [category, "", ""])
+                category_item.setExpanded(True)
+                signals = self.controller.signal_manager.get_signals_by_category(
+                    category
                 )
-                signal_item.setData(0, Qt.UserRole, signal_id)
-                signal_item.setCheckState(0, Qt.Unchecked)
-                # tooltip shows id and type for clarity
-                try:
-                    tip = (
-                        f"{signal_info['name']} (id={signal_id}, "
-                        f"type={signal_info['type']})"
+                for signal_id, signal_info in signals:
+                    label = signal_info.get("name") or str(signal_id)
+                    checked = Qt.Checked if signal_id in selected else Qt.Unchecked
+                    status_text = "●" if checked == Qt.Checked else "○"
+                    signal_item = QTreeWidgetItem(
+                        category_item, [label, status_text, "--"]
                     )
-                    signal_item.setToolTip(0, tip)
+                    signal_item.setData(0, Qt.UserRole, signal_id)
+                    signal_item.setCheckState(0, checked)
+                    try:
+                        tip = (
+                            f"{label} (id={signal_id}, type={signal_info.get('type')})"
+                        )
+                        signal_item.setToolTip(0, tip)
+                    except Exception:
+                        pass
+
+            try:
+                tree.expandToDepth(1)
+            except Exception:
+                pass
+        finally:
+            try:
+                tree.blockSignals(False)
+            except Exception:
+                pass
+            self._populating_tree = False
+
+        try:
+            self._rebuild_legend()
+        except Exception:
+            pass
+
+    def apply_field_preferences(
+        self, field_service, preferences: Optional[Dict[str, object]] = None
+    ) -> None:
+        """Update available waveform signals based on protocol field selections."""
+
+        self._field_service = field_service
+        self._field_preferences = preferences or {}
+
+        retained = set(self.controller.get_selected_signals())
+
+        try:
+            self.signal_manager.load_from_protocol(
+                field_service, self._field_preferences
+            )
+        except Exception:
+            logger.exception("Failed to refresh signal definitions from protocol")
+            self.signal_manager.load_signal_definitions()
+
+        available_ids = set(self.signal_manager.signals.keys())
+
+        # Remove plots and selections that are no longer available
+        for sid in list(retained):
+            if sid not in available_ids:
+                self.controller.deselect_signal(sid)
+                try:
+                    self.waveform_widget.remove_signal_plot(sid)
+                except Exception:
+                    pass
+                retained.discard(sid)
+
+        self._populate_signal_tree()
+
+        # Ensure existing selections have active plots after tree rebuild
+        current_curves = getattr(self.waveform_widget, "curves", {})
+        for sid in retained:
+            info = self.signal_manager.get_signal_info(sid)
+            if info is None:
+                continue
+            if sid not in current_curves:
+                try:
+                    self.waveform_widget.add_signal_plot(sid, info)
                 except Exception:
                     pass
 
-        return tree
+        try:
+            self._rebuild_legend()
+        except Exception:
+            pass
 
     def setup_connections(self):
         """设置信号连接"""
@@ -316,21 +404,8 @@ class WaveformDisplay(QWidget):
         self.theme_combo.currentTextChanged.connect(self._on_theme_changed)
         self.legend_check.toggled.connect(self._on_legend_toggled)
         self.grid_btn.clicked.connect(self._on_grid_toggled)
-        # palette handlers
-        try:
-            # Palette IO moved to SettingsDialog helpers
-            from gui.settings_dialog import SettingsDialog
-
-            # Move palette IO UI into SettingsDialog: toolbar buttons open dialog
-            self.save_palette_btn.clicked.connect(self._open_settings_dialog)
-            self.load_palette_btn.clicked.connect(self._open_settings_dialog)
-            self.export_palette_btn.clicked.connect(self._open_settings_dialog)
-            self.import_palette_btn.clicked.connect(self._open_settings_dialog)
-            # keep reference for programmatic calls if needed
-            self._settings_dialog_cls = SettingsDialog
-        except Exception:
-            # fall back to existing handlers if import fails
-            self._settings_dialog_cls = None
+        # palette handlers via combo box
+        self.palette_combo.currentIndexChanged.connect(self._on_palette_combo_changed)
 
     def on_record_toggled(self, checked):
         """记录按钮切换"""
@@ -408,7 +483,15 @@ class WaveformDisplay(QWidget):
 
                 fieldnames = ["timestamp"] + display_names
 
-                with open(path, "w", newline="", encoding="utf-8") as f:
+                # Use UTF-8 with BOM on Windows so Excel recognizes UTF-8 correctly.
+                # On non-Windows platforms keep plain UTF-8 to avoid inserting a BOM.
+                import sys
+
+                csv_encoding = (
+                    "utf-8-sig" if sys.platform.startswith("win") else "utf-8"
+                )
+
+                with open(path, "w", newline="", encoding=csv_encoding) as f:
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     for r in rows:
@@ -422,8 +505,7 @@ class WaveformDisplay(QWidget):
             # remember last export path for convenience
             try:
                 self._last_export_path = path
-                settings = QSettings()
-                settings.setValue("WaveformDisplay/last_export_path", path)
+                self.save_settings()
             except Exception:
                 pass
 
@@ -446,12 +528,13 @@ class WaveformDisplay(QWidget):
 
     def on_auto_range_toggled(self, checked):
         """自动范围切换"""
+        self.waveform_widget.set_auto_y_enabled(bool(checked))
         if checked:
             self.waveform_widget.auto_range()
 
     def on_signal_selection_changed(self, item, column):
         """信号选择改变"""
-        if column != 0:
+        if column != 0 or self._populating_tree:
             return
 
         signal_id = item.data(0, Qt.UserRole)
@@ -561,9 +644,21 @@ class WaveformDisplay(QWidget):
         Each entry contains a visibility checkbox, a color swatch button and a label.
         """
         try:
+            layout = getattr(self, "_legend_layout", None)
+            if layout is None:
+                legend_container = QWidget()
+                layout = QVBoxLayout(legend_container)
+                layout.setContentsMargins(2, 2, 2, 2)
+                layout.setSpacing(4)
+                self._legend_layout = layout
+                try:
+                    self.legend_area.setWidget(legend_container)
+                except Exception:
+                    pass
+
             # clear existing widgets
-            while self._legend_layout.count():
-                item = self._legend_layout.takeAt(0)
+            while layout.count():
+                item = layout.takeAt(0)
                 w = item.widget()
                 if w is not None:
                     try:
@@ -629,7 +724,9 @@ class WaveformDisplay(QWidget):
                 hl.addWidget(color_btn)
                 hl.addStretch()
 
-                self._legend_layout.addWidget(entry)
+                layout.addWidget(entry)
+
+            layout.addStretch(1)
 
         except Exception:
             logger.exception("重建交互式图例失败")
@@ -652,6 +749,29 @@ class WaveformDisplay(QWidget):
                 pass
         except Exception:
             pass
+
+    def _on_palette_combo_changed(self, index: int) -> None:
+        if index <= 0:
+            return
+
+        action = self.palette_combo.itemData(index)
+        handlers = {
+            "save": self._on_save_palette,
+            "load": self._on_load_palette,
+            "export": self._on_export_palette,
+            "import": self._on_import_palette,
+        }
+
+        try:
+            handler = handlers.get(action)
+            if handler:
+                handler()
+        finally:
+            try:
+                self.palette_combo.blockSignals(True)
+                self.palette_combo.setCurrentIndex(0)
+            finally:
+                self.palette_combo.blockSignals(False)
 
     def _on_save_palette(self):
         """Save current signal color mapping to QSettings.
@@ -680,30 +800,10 @@ class WaveformDisplay(QWidget):
     def _on_load_palette(self):
         """Load palette mapping from QSettings and apply colors to existing curves."""
         try:
-            cls = self._get_settings_dialog_cls()
-            if not cls:
-                QMessageBox.information(self, "配色", "设置对话框不可用，无法加载配色")
-                return
-            mapping = cls.load_palette_from_settings()
-            if not mapping:
+            if self._load_palette_from_settings(silent=True):
+                QMessageBox.information(self, "配色", "配色已加载并应用")
+            else:
                 QMessageBox.information(self, "配色", "未找到已保存的配色")
-                return
-
-            for k, v in (mapping or {}).items():
-                try:
-                    self.waveform_widget.set_curve_color(k, v)
-                except Exception:
-                    try:
-                        self.waveform_widget.set_curve_color(int(k), v)
-                    except Exception:
-                        pass
-
-            try:
-                self._rebuild_legend()
-            except Exception:
-                pass
-
-            QMessageBox.information(self, "配色", "配色已加载并应用")
         except Exception:
             logger.exception("加载配色失败")
             QMessageBox.critical(self, "配色", "加载配色失败")
@@ -775,19 +875,6 @@ class WaveformDisplay(QWidget):
         except Exception:
             pass
 
-    def _open_settings_dialog(self):
-        """Open the centralized SettingsDialog where palette IO is managed."""
-        try:
-            if getattr(self, "_settings_dialog_cls", None):
-                dlg = self._settings_dialog_cls(self)
-                dlg.exec()
-        except Exception:
-            # fallback: no settings dialog available
-            try:
-                QMessageBox.information(self, "设置", "无法打开设置对话框")
-            except Exception:
-                pass
-
     def on_data_updated(self):
         """统一数据更新"""
         logger.debug("波形显示数据更新触发")
@@ -829,6 +916,8 @@ class WaveformDisplay(QWidget):
 
         # 更新所有绘图
         self.waveform_widget.update_all_plots()
+        if self.auto_range_check.isChecked():
+            self.waveform_widget.auto_range()
 
     def add_send_data(self, data_buffer, timestamp=None):
         """添加发送数据（供外部调用）"""
@@ -838,26 +927,19 @@ class WaveformDisplay(QWidget):
         """添加接收数据（供外部调用）"""
         self.controller.add_receive_data(parsed_data, device_type, timestamp)
 
-    def save_settings(self):
-        """Persist WaveformDisplay settings using QSettings."""
+    def shutdown(self) -> None:
+        """Release resources ahead of application shutdown."""
         try:
-            settings = QSettings()
-            settings.beginGroup("WaveformDisplay")
-            # selected signals
-            sel = self.controller.get_selected_signals()
-            settings.setValue("selected_signals", list(sel))
-            # time range
-            settings.setValue("time_range", self.time_range_combo.currentText())
-            # auto range
-            settings.setValue("auto_range", self.auto_range_check.isChecked())
-            # last export path
-            settings.setValue(
-                "last_export_path", getattr(self, "_last_export_path", "")
-            )
-            # signal order: save checked items in tree order so plots can be
-            # restored in the same order
+            if getattr(self, "controller", None) is not None:
+                self.controller.shutdown()
+        except Exception:
+            pass
+
+    def save_settings(self):
+        """Persist WaveformDisplay settings using the central store."""
+        try:
+            order: list[str] = []
             try:
-                order = []
                 for i in range(self.signal_tree.topLevelItemCount()):
                     cat = self.signal_tree.topLevelItem(i)
                     for j in range(cat.childCount()):
@@ -866,32 +948,49 @@ class WaveformDisplay(QWidget):
                             sid = item.data(0, Qt.UserRole)
                             if sid:
                                 order.append(str(sid))
-                settings.setValue("signal_order", order)
             except Exception:
-                pass
+                order = []
 
-            settings.endGroup()
+            palette: dict[str, str] = {}
             try:
-                settings.sync()
+                curves = getattr(self.waveform_widget, "curves", {})
+                for sid, info in curves.items():
+                    color = info.get("color")
+                    if color:
+                        palette[str(sid)] = color
             except Exception:
-                pass
+                palette = {}
+
+            splitter_sizes = None
+            try:
+                if getattr(self, "splitter", None) is not None:
+                    splitter_sizes = [int(x) for x in self.splitter.sizes()]
+            except Exception:
+                splitter_sizes = None
+
+            state = WaveformSettings(
+                selected_signals=list(self.controller.get_selected_signals()),
+                time_range=self.time_range_combo.currentText(),
+                auto_range=self.auto_range_check.isChecked(),
+                last_export_path=getattr(self, "_last_export_path", ""),
+                signal_order=order,
+                splitter_sizes=splitter_sizes,
+                palette=palette,
+            )
+            save_waveform_settings(state)
         except Exception:
             logger.exception("保存 WaveformDisplay 设置失败")
 
     def load_settings(self):
         """Load persisted WaveformDisplay settings and apply to UI."""
         try:
-            settings = QSettings()
-            settings.beginGroup("WaveformDisplay")
-            sel = settings.value("selected_signals", []) or []
-            time_range = settings.value(
-                "time_range", self.time_range_combo.currentText()
-            )
-            auto_range = settings.value("auto_range", True)
-            last_export = settings.value("last_export_path", "") or ""
-            signal_order = settings.value("signal_order", []) or []
-            splitter_sizes = settings.value("splitter_sizes", None)
-            settings.endGroup()
+            stored = load_waveform_settings()
+            sel = stored.selected_signals or []
+            time_range = stored.time_range or self.time_range_combo.currentText()
+            auto_range = stored.auto_range
+            last_export = stored.last_export_path or ""
+            signal_order = stored.signal_order or []
+            splitter_sizes = stored.splitter_sizes
 
             # apply time range and auto range
             try:
@@ -901,11 +1000,7 @@ class WaveformDisplay(QWidget):
                 pass
             try:
                 if splitter_sizes and getattr(self, "splitter", None) is not None:
-                    try:
-                        sizes = [int(x) for x in splitter_sizes]
-                    except Exception:
-                        sizes = splitter_sizes
-                    self.splitter.setSizes(sizes)
+                    self.splitter.setSizes(splitter_sizes)
             except Exception:
                 pass
 
@@ -936,26 +1031,48 @@ class WaveformDisplay(QWidget):
                 # the saved order; otherwise, fall back to sel order.
                 apply_order = signal_order if signal_order else sel
 
-                for sid in apply_order:
-                    item = lookup.get(str(sid))
-                    if item is not None:
-                        # set checked state without triggering selection logic twice
-                        block = item.blockSignals(True)
-                        item.setCheckState(0, Qt.Checked)
-                        item.blockSignals(block)
-                        try:
-                            self.controller.select_signal(sid)
-                            # add plot in the same order
-                            info = self.controller.signal_manager.get_signal_info(sid)
-                            self.waveform_widget.add_signal_plot(sid, info)
-                        except Exception:
-                            pass
+                # Block tree signals while restoring to avoid itemChanged handlers.
+                try:
+                    self.signal_tree.blockSignals(True)
+                except Exception:
+                    pass
+
+                try:
+                    for sid in apply_order:
+                        item = lookup.get(str(sid))
+                        if item is not None:
+                            # set checked state; tree signals are blocked
+                            item.setCheckState(0, Qt.Checked)
+                            try:
+                                info = self.controller.signal_manager.get_signal_info(
+                                    sid
+                                )
+                                if info is None:
+                                    continue
+                                self.controller.select_signal(sid)
+                                # add plot in the same order
+                                self.waveform_widget.add_signal_plot(sid, info)
+                            except Exception:
+                                pass
+                finally:
+                    try:
+                        self.signal_tree.blockSignals(False)
+                    except Exception:
+                        pass
 
             # try to restore saved palette/colors if any
+            applied_palette = False
             try:
-                self._on_load_palette()
+                if stored.palette:
+                    applied_palette = self._apply_palette_mapping(stored.palette)
             except Exception:
-                pass
+                applied_palette = False
+
+            if not applied_palette:
+                try:
+                    self._load_palette_from_settings(silent=True)
+                except Exception:
+                    pass
 
         except Exception:
             logger.exception("加载 WaveformDisplay 设置失败")
@@ -973,7 +1090,55 @@ class WaveformDisplay(QWidget):
         except Exception:
             return None
 
-    # Palette IO is centralized in `SettingsDialog`; helpers were removed
+    def _apply_palette_mapping(self, mapping: dict) -> bool:
+        if not mapping:
+            return False
+
+        applied = False
+        for key, color in (mapping or {}).items():
+            try:
+                self.waveform_widget.set_curve_color(key, color)
+                applied = True
+            except Exception:
+                try:
+                    self.waveform_widget.set_curve_color(int(key), color)
+                    applied = True
+                except Exception:
+                    pass
+
+        if applied:
+            try:
+                self._rebuild_legend()
+            except Exception:
+                pass
+        return applied
+
+    def _load_palette_from_settings(self, silent: bool = False) -> bool:
+        cls = self._get_settings_dialog_cls()
+        if not cls:
+            if not silent:
+                QMessageBox.information(self, "配色", "设置对话框不可用，无法加载配色")
+            return False
+
+        try:
+            mapping = cls.load_palette_from_settings()
+        except Exception:
+            if not silent:
+                QMessageBox.critical(self, "配色", "读取配色时发生错误")
+            return False
+
+        if not mapping:
+            return False
+
+        applied = self._apply_palette_mapping(mapping)
+        if applied:
+            try:
+                state = load_waveform_settings()
+                state.palette = {str(k): str(v) for k, v in mapping.items()}
+                save_waveform_settings(state)
+            except Exception:
+                pass
+        return applied
 
     def _on_thumb_clicked(self):
         """Generate a small thumbnail snapshot of the current plot."""

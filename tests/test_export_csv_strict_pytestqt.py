@@ -49,7 +49,7 @@ def test_export_csv_and_json_headers_and_rows(qtbot, monkeypatch, tmp_path):
     wd.on_export_clicked()
 
     assert csv_file.exists(), "CSV file not created"
-    with open(csv_file, newline="", encoding="utf-8") as f:
+    with open(csv_file, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
         header = next(reader)
         assert header == ["timestamp"] + display_names

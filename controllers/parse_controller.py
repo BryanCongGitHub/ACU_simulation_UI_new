@@ -1,17 +1,20 @@
 from typing import Dict, Any
 from model.protocols.inv_protocol import InvLikeProtocol
 from model.protocols.dummy_protocol import DummyProtocol
+from protocols.template_runtime.loader import load_template_protocol
+from protocols.template_runtime.schema import TemplateConfigError
 
 
 class ParseController:
     """解析控制器：集中管理协议实例与解析。后续可注册多协议。"""
 
     def __init__(self):
-        self._protocols = {
-            "INV": InvLikeProtocol("INV"),
-            "CHU": InvLikeProtocol("CHU"),
-            "BCC": InvLikeProtocol("BCC"),
-        }
+        self._protocols = {}
+        for cat in ("INV", "CHU", "BCC"):
+            try:
+                self._protocols[cat] = load_template_protocol(cat)
+            except (FileNotFoundError, TemplateConfigError):
+                self._protocols[cat] = InvLikeProtocol(cat)
         # 示例协议注册
         self._protocols["DUMMY"] = DummyProtocol()
         # 端口映射（与旧实现保持一致）

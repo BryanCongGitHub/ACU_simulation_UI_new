@@ -1,0 +1,555 @@
+version: 1
+metadata:
+  base_name: INV_LIKE
+  description: ACU simulation template for INV / CHU / BCC protocols
+frame_length:
+  send: 320
+  receive: 64
+send_operations:
+  - op: life_signal_u16
+    offset: 0
+  - op: dict_bitset
+    source: bool_commands
+  - op: dict_u16_scaled
+    source: freq_controls
+    factor: 10
+  - op: dict_packed_byte
+    source: isolation_commands
+    offset: 64
+  - op: dict_packed_byte
+    source: start_commands
+    offset: 65
+  - op: dict_bitset
+    source: chu_controls
+  - op: dict_bitset
+    source: redundant_commands
+  - op: dict_u16_scaled
+    source: start_times
+    factor: 1
+  - op: dict_u16_scaled
+    source: branch_voltages
+    factor: 4
+  - op: scalar_u16_scaled
+    source: battery_temp
+    offset: 158
+    factor: 10
+send_layout:
+  life_signal:
+    offset: 0
+    fmt: ">H"
+    label: CCU生命信号
+    range: 0-65535
+  timestamps:
+    - offset: 2
+      fmt: B
+      label: 年
+      range: 0-99
+      note: FrameBuilder 在发送时写入实时时钟
+    - offset: 3
+      fmt: B
+      label: 月
+      range: 0-12
+    - offset: 4
+      fmt: B
+      label: 日
+      range: 0-31
+    - offset: 5
+      fmt: B
+      label: 时
+      range: 0-23
+    - offset: 6
+      fmt: B
+      label: 分
+      range: 0-60
+    - offset: 7
+      fmt: B
+      label: 秒
+      range: 0-60
+  bool_bitsets:
+    - source: bool_commands
+      label: 基本控制命令
+      bits:
+        - byte: 8
+          bit: 0
+          label: 均衡充电模式
+          note: "0=无效；1=有效（BCC1/2蓄电池充电控制）"
+        - byte: 8
+          bit: 1
+          label: 停止工作
+          note: 0=无效；1=有效
+        - byte: 8
+          bit: 2
+          label: 预发车测试状态指令
+          note: 0=无效；1=有效
+        - byte: 8
+          bit: 3
+          label: 预留
+        - byte: 8
+          bit: 4
+          label: 预留
+        - byte: 8
+          bit: 5
+          label: 预留
+        - byte: 8
+          bit: 6
+          label: DCDC3隔离命令
+          note: 0=无效；1=有效
+        - byte: 8
+          bit: 7
+          label: DCDC4隔离命令
+          note: 0=无效；1=有效
+        - byte: 9
+          bit: 0
+          label: 故障复位命令
+          note: 0=无效；1=有效
+        - byte: 9
+          bit: 1
+          label: 空压机1启动命令
+          note: 0=无效；1=有效
+        - byte: 9
+          bit: 2
+          label: 空压机2启动命令
+          note: 0=无效；1=有效
+        - byte: 9
+          bit: 3
+          label: 除尘风机KM61闭合指令
+          note: 0=无效；1=闭合
+        - byte: 9
+          bit: 4
+          label: 热保障KM62闭合指令
+          note: 0=无效；1=闭合
+        - byte: 9
+          bit: 5
+          label: 热保障KM63闭合指令
+          note: 0=无效；1=闭合
+        - byte: 9
+          bit: 6
+          label: 电池水泵KM65闭合指令
+          note: 0=无效；1=闭合
+        - byte: 9
+          bit: 7
+          label: 柴油机起动状态
+          note: 0=停机；1=起机
+    - source: chu_controls
+      label: CHU/DCDC 控制
+      bits:
+        - byte: 66
+          bit: 0
+          label: CHU3启动指令
+          note: 0=无效；1=有效
+        - byte: 66
+          bit: 1
+          label: CHU4启动指令
+          note: 0=无效；1=有效
+        - byte: 66
+          bit: 2
+          label: CHU3隔离指令
+          note: 0=无效；1=有效
+        - byte: 66
+          bit: 3
+          label: CHU4隔离指令
+          note: 0=无效；1=有效
+        - byte: 66
+          bit: 4
+          label: DCDC3故障
+          note: 0=无效；1=有效
+        - byte: 66
+          bit: 5
+          label: DCDC4故障
+          note: 0=无效；1=有效
+        - byte: 66
+          bit: 6
+          label: BCC1冗余启动
+          note: 0=无效；1=有效
+        - byte: 66
+          bit: 7
+          label: BCC2冗余启动
+          note: 0=无效；1=有效
+    - source: redundant_commands
+      label: 冗余启动
+      bits:
+        - byte: 67
+          bit: 0
+          label: INV1冗余启动
+          note: 0=无效；1=有效
+        - byte: 67
+          bit: 1
+          label: INV4冗余启动
+          note: 0=无效；1=有效
+        - byte: 67
+          bit: 2
+          label: 预留
+          note: 文档标注预留
+        - byte: 67
+          bit: 3
+          label: 预留
+          note: 文档标注预留
+        - byte: 67
+          bit: 4
+          label: 预留
+          note: 文档标注预留
+        - byte: 67
+          bit: 5
+          label: 预留
+          note: 文档标注预留
+        - byte: 67
+          bit: 6
+          label: 预留
+          note: 文档标注预留
+        - byte: 67
+          bit: 7
+          label: 预留
+          note: 文档标注预留
+  packed_bytes:
+    - source: isolation_commands
+      offset: 64
+      label: 隔离指令
+      bits:
+        - bit: 0
+          label: INV1隔离指令
+        - bit: 1
+          label: INV2隔离指令
+        - bit: 2
+          label: INV3隔离指令
+        - bit: 3
+          label: INV4隔离指令
+        - bit: 4
+          label: INV5隔离指令
+        - bit: 5
+          label: INV6隔离指令
+        - bit: 6
+          label: BCC1隔离指令
+        - bit: 7
+          label: BCC2隔离指令
+    - source: start_commands
+      offset: 65
+      label: 启动指令
+      bits:
+        - bit: 0
+          label: INV1启动指令
+        - bit: 1
+          label: INV2启动指令
+        - bit: 2
+          label: INV3启动指令
+        - bit: 3
+          label: INV4启动指令
+        - bit: 4
+          label: INV5启动指令
+        - bit: 5
+          label: INV6启动指令
+        - bit: 6
+          label: BCC1启动指令
+        - bit: 7
+          label: BCC2启动指令
+  word_fields:
+    - source: freq_controls
+      offset: 10
+      label: CCU给定INV2频率
+      scale: 0.1
+      unit: Hz
+      note: 文档标定 1=0.1Hz
+    - source: freq_controls
+      offset: 12
+      label: CCU给定INV3频率
+      scale: 0.1
+      unit: Hz
+      note: 文档标定 1=0.1Hz
+    - source: freq_controls
+      offset: 14
+      label: CCU给定INV4频率
+      scale: 0.1
+      unit: Hz
+      note: 文档标定 1=0.1Hz
+    - source: freq_controls
+      offset: 16
+      label: CCU给定INV5频率
+      scale: 0.1
+      unit: Hz
+      note: 文档标定 1=0.1Hz
+    - source: start_times
+      offset: 142
+      label: INV1启动时间
+      scale: 1
+      unit: 秒
+      note: 文档标定 1=1s
+    - source: start_times
+      offset: 144
+      label: INV2启动时间
+      scale: 1
+      unit: 秒
+      note: 文档标定 1=1s
+    - source: start_times
+      offset: 146
+      label: INV3启动时间
+      scale: 1
+      unit: 秒
+      note: 文档标定 1=1s
+    - source: start_times
+      offset: 148
+      label: INV4启动时间
+      scale: 1
+      unit: 秒
+      note: 文档标定 1=1s
+    - source: start_times
+      offset: 150
+      label: INV5启动时间
+      scale: 1
+      unit: 秒
+      note: 文档标定 1=1s
+    - source: start_times
+      offset: 152
+      label: INV6启动时间
+      scale: 1
+      unit: 秒
+      note: 文档标定 1=1s
+    - source: branch_voltages
+      offset: 154
+      label: 支路电压3
+      scale: 0.25
+      unit: V
+      note: 文档标定 1=0.25V
+    - source: branch_voltages
+      offset: 156
+      label: 支路电压4
+      scale: 0.25
+      unit: V
+      note: 文档标定 1=0.25V
+    - source: battery_temp
+      offset: 158
+      label: 蓄电池温度
+      scale: 0.1
+      unit: 摄氏度
+      note: 文档标定 1=0.1℃
+  reserved_ranges:
+    - start: 17
+      end: 63
+      label: 预留
+      note: 文档标注 16-63 为预留区（16 字节用于频率字段）
+    - start: 68
+      end: 141
+      label: 预留
+      note: 文档标注 68-141 为预留布尔位
+    - start: 160
+      end: 319
+      label: 预留
+      note: 文档标注 158-319 预备，158 由温度占用
+receive_common:
+  device_info:
+    - label: 生命信号
+      offset: 0
+      fmt: ">H"
+    - label: 软件编码
+      offset: 2
+      fmt: ">H"
+    - label: 软件版本
+      offset: 4
+      fmt: ">H"
+categories:
+  INV:
+    display_name: INV inverter
+    receive:
+      run_parameters:
+        - label: 输出频率
+          offset: 6
+          fmt: ">H"
+          scale: 0.1
+        - label: U相电流
+          offset: 8
+          fmt: ">H"
+          scale: 0.25
+        - label: V相电流
+          offset: 10
+          fmt: ">H"
+          scale: 0.25
+        - label: W相电流
+          offset: 12
+          fmt: ">H"
+          scale: 0.25
+        - label: 输入电压
+          offset: 14
+          fmt: ">H"
+          scale: 0.25
+        - label: IPM温度
+          offset: 24
+          fmt: ">H"
+          scale: 0.1
+      status_flags:
+        - byte: 48
+          bit: 0
+          label: 工作允许反馈
+        - byte: 48
+          bit: 1
+          label: 工作中状态反馈
+        - byte: 48
+          bit: 2
+          label: 隔离及锁定反馈
+        - byte: 48
+          bit: 3
+          label: 总故障反馈
+      faults:
+        - byte: 52
+          bits:
+            0: 模块A相管保护
+            1: 模块B相管保护
+            2: 模块C相管保护
+            3: 模块过热
+            4: 模块输出短路过流
+            5: 模块输出三相不平衡
+            6: 输出过流
+            7: IPM电流异常
+        - byte: 53
+          bits:
+            0: 模块输出1.5倍过载
+            1: 模块输出1.2倍过载
+            2: Fuse熔断
+            7: 生命信号故障
+        - byte: 55
+          bits:
+            0: KM11/KM43/KM44/KM61无法闭合故障
+            1: KM12/KM41/KM51/KM62无法闭合故障
+            2: KM13/KM42/KM52/KM63无法闭合故障
+            3: KM53/KM64无法闭合故障
+            4: KM54/KM65无法闭合故障
+            5: KM34无法闭合故障
+        - byte: 56
+          bits:
+            0: KM11/KM43/KM44/KM61无法断开故障
+            1: KM12/KM41/KM51/KM62无法断开故障
+            2: KM13/KM42/KM52/KM63无法断开故障
+            3: KM53/KM64无法断开故障
+            4: KM54/KM65无法断开故障
+            5: KM34无法闭合故障
+        - byte: 57
+          bits:
+            0: 空压机1/前架牵引风机/制动风机1电流异常
+            1: 空压机2/后架牵引风机/制动风机2电流异常
+            2: 辅助逆变器过载
+  CHU:
+    display_name: CHU converter
+    receive:
+      run_parameters:
+        - label: 输出频率
+          offset: 6
+          fmt: ">H"
+          scale: 0.1
+        - label: U相电流
+          offset: 8
+          fmt: ">H"
+          scale: 0.25
+        - label: V相电流
+          offset: 10
+          fmt: ">H"
+          scale: 0.25
+        - label: W相电流
+          offset: 12
+          fmt: ">H"
+          scale: 0.25
+        - label: 输入电压
+          offset: 14
+          fmt: ">H"
+          scale: 0.25
+        - label: IPM温度
+          offset: 24
+          fmt: ">H"
+          scale: 0.1
+      status_flags:
+        - byte: 48
+          bit: 0
+          label: 工作允许反馈
+        - byte: 48
+          bit: 1
+          label: 工作中状态反馈
+        - byte: 48
+          bit: 2
+          label: 隔离及锁定反馈
+        - byte: 48
+          bit: 3
+          label: 总故障反馈
+        - byte: 48
+          bit: 4
+          label: 斩波器准备完成
+      faults:
+        - byte: 52
+          bits:
+            0: 模块A相管保护
+            1: 模块B相管保护
+            2: 模块C相管保护
+            3: 模块过热
+            4: 模块输出短路过流
+            5: 模块输出三相不平衡
+            6: 输出过流
+            7: IPM电流异常
+        - byte: 53
+          bits:
+            0: 模块输出1.5倍过载
+            1: 模块输出1.2倍过载
+            2: Fuse熔断
+            3: 输出过压
+            4: 输出欠压
+            7: 生命信号故障
+        - byte: 54
+          bits:
+            0: QF61断开故障
+            1: QF62断开故障
+            2: QF63断开故障
+            3: QF64断开故障
+            4: QF65断开故障
+            6: QF67断开故障
+            7: QF68断开故障
+  BCC:
+    display_name: BCC charger
+    receive:
+      run_parameters:
+        - label: 输出电压
+          offset: 6
+          fmt: ">H"
+          scale: 0.25
+        - label: 输出电流
+          offset: 8
+          fmt: ">H"
+          scale: 0.25
+        - label: 充电电流
+          offset: 10
+          fmt: ">H"
+          scale: 0.25
+        - label: 电池温度
+          offset: 12
+          fmt: ">H"
+          scale: 0.1
+        - label: 模块温度
+          offset: 14
+          fmt: ">H"
+          scale: 0.1
+      status_flags:
+        - byte: 48
+          bit: 0
+          label: 工作允许反馈
+        - byte: 48
+          bit: 1
+          label: 工作中状态反馈
+        - byte: 48
+          bit: 2
+          label: 隔离及锁定反馈
+        - byte: 48
+          bit: 3
+          label: 总故障反馈
+        - byte: 48
+          bit: 4
+          label: 均衡充电模式状态
+      faults:
+        - byte: 52
+          bits:
+            0: 原边过流
+            1: 输出过压
+            2: 输出欠压
+            3: 输出过流
+            4: 蓄电池充电过流
+            5: 模块管保护
+            6: 输入熔断器故障
+            7: 蓄电池温度过高
+        - byte: 53
+          bits:
+            0: 蓄电池温度传感器故障
+            1: 模块温度传感器故障
+            2: 模块过温
+            7: 生命信号故障

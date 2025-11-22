@@ -16,11 +16,23 @@ class DataBuffer:
         self.data = defaultdict(lambda: deque(maxlen=max_points))
         self.timestamps = deque(maxlen=max_points)
         self.signal_order = []  # 记录信号添加顺序
+        # 采样间隔统计，用于自适应下采样/窗口估算
+        self._recent_intervals = deque(maxlen=200)
 
     def add_data_point(self, signal_id, value, timestamp=None):
         """添加单个数据点（保留此方法用于兼容）"""
         if timestamp is None:
             timestamp = time.time()
+
+        # 记录与上次时间戳的间隔，用于估算采样频率
+        try:
+            if self.timestamps:
+                last_ts = self.timestamps[-1]
+                interval = timestamp - last_ts
+                if interval > 0:
+                    self._recent_intervals.append(interval)
+        except Exception:
+            pass
 
         # 如果是新信号，用当前值填充之前的时间点
         if signal_id not in self.signal_order:
@@ -49,6 +61,15 @@ class DataBuffer:
             return
 
         # 只添加一个时间戳
+        try:
+            if self.timestamps:
+                last_ts = self.timestamps[-1]
+                interval = timestamp - last_ts
+                if interval > 0:
+                    self._recent_intervals.append(interval)
+        except Exception:
+            pass
+
         self.timestamps.append(timestamp)
         logger.debug(
             f"添加批量数据点: {list(signal_values.keys())}, 时间戳: {timestamp:.3f}"
@@ -144,6 +165,7 @@ class DataBuffer:
         self.data.clear()
         self.timestamps.clear()
         self.signal_order.clear()
+        self._recent_intervals.clear()
         logger.info("数据缓冲区已清空")
 
     def get_latest_value(self, signal_id):
@@ -154,3 +176,44 @@ class DataBuffer:
             return value
         logger.debug(f"信号 {signal_id} 无数据")
         return None
+
+    # ---- 采样估算/窗口辅助 -------------------------------------------------
+    def average_interval(self, recent: int = 20, fallback: float = 0.2) -> float:
+        """返回最近若干间隔的平均采样间隔（秒）。"""
+        try:
+            if not self._recent_intervals:
+                return fallback
+            vals = list(self._recent_intervals)[-recent:]
+            return float(sum(vals)) / max(1, len(vals))
+        except Exception:
+            return fallback
+
+    def get_window_indices(self, window_seconds: float, max_points: int) -> list:
+        """返回位于 latest-window_seconds 到 latest 时间段的时间戳索引列表。
+
+        如果窗口内点数超过 `max_points`，会按块下采样（每块取最后点）以保证返回长度 <= max_points。
+        """
+        try:
+            timestamps = list(self.timestamps)
+            if not timestamps:
+                return []
+            latest = timestamps[-1]
+            start = latest - float(window_seconds)
+            indices = [i for i, t in enumerate(timestamps) if t >= start]
+            if not indices:
+                return []
+            if len(indices) <= max_points:
+                return indices
+            import math
+
+            step = math.ceil(len(indices) / float(max_points))
+            sampled = indices[::step]
+            # 保证包含最新点
+            if sampled[-1] != indices[-1]:
+                sampled.append(indices[-1])
+            # 如果因追加导致超过上限，截取最后的 max_points 个，保证包含最新点
+            if len(sampled) > max_points:
+                sampled = sampled[-max_points:]
+            return sampled
+        except Exception:
+            return []

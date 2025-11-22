@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # waveform_controller.py
 import time
 import logging
@@ -17,16 +19,16 @@ class WaveformController(QObject):
 
     data_updated = Signal()
 
-    def __init__(self):
+    def __init__(self, signal_manager: SignalManager | None = None):
         super().__init__()
-        self.signal_manager = SignalManager()
+        self.signal_manager = signal_manager or SignalManager()
         self.data_buffer = DataBuffer(max_points=5000)
         self.selected_signals = set()
         self.is_recording = False
         self.start_time = time.time()
 
         # 使用单个定时器统一更新
-        self.update_timer = QTimer()
+        self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._on_update_timer)
         self.update_timer.start(200)  # 5Hz更新
 
@@ -48,6 +50,19 @@ class WaveformController(QObject):
         """停止记录"""
         self.is_recording = False
         logger.info("波形记录已停止")
+
+    def shutdown(self):
+        """Stop internal timers to avoid killTimer warnings during teardown."""
+        try:
+            if getattr(self, "update_timer", None) is not None:
+                self.update_timer.stop()
+        except Exception:
+            pass
+        try:
+            if getattr(self, "update_timer", None) is not None:
+                self.update_timer.deleteLater()
+        except Exception:
+            pass
 
     def add_send_data(self, data_buffer, timestamp=None):
         """添加发送数据"""
@@ -143,6 +158,18 @@ class WaveformController(QObject):
             elif signal_info["type"] == "analog":
                 if byte_pos + 1 < len(data_buffer):
                     raw_value = (data_buffer[byte_pos] << 8) | data_buffer[byte_pos + 1]
+
+                    scale = signal_info.get("scale")
+                    if isinstance(scale, (int, float)) and scale not in (0, 1):
+                        value = raw_value * scale
+                        logger.debug(
+                            "提取模拟信号(带比例): %s 原始=%s 比例=%s 结果=%s",
+                            signal_info.get("name"),
+                            raw_value,
+                            scale,
+                            value,
+                        )
+                        return value
 
                     # 根据信号类型进行转换
                     if "频率" in signal_info["name"]:
