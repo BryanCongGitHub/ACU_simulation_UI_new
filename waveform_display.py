@@ -483,8 +483,15 @@ class WaveformDisplay(QWidget):
 
                 fieldnames = ["timestamp"] + display_names
 
-                # write without BOM so CSV headers are plain ASCII/UTF-8
-                with open(path, "w", newline="", encoding="utf-8") as f:
+                # Use UTF-8 with BOM on Windows so Excel recognizes UTF-8 correctly.
+                # On non-Windows platforms keep plain UTF-8 to avoid inserting a BOM.
+                import sys
+
+                csv_encoding = (
+                    "utf-8-sig" if sys.platform.startswith("win") else "utf-8"
+                )
+
+                with open(path, "w", newline="", encoding=csv_encoding) as f:
                     writer = csv.DictWriter(f, fieldnames=fieldnames)
                     writer.writeheader()
                     for r in rows:

@@ -25,7 +25,7 @@ def test_export_csv_basic(tmp_path):
 
     # read file and assert header
     assert out_path.exists()
-    with open(out_path, newline="", encoding="utf-8") as f:
+    with open(out_path, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
         header = next(reader)
         assert "timestamp" in header
