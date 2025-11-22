@@ -274,7 +274,7 @@ class WaveformDisplay(QWidget):
         self._populate_signal_tree(tree)
         return tree
 
-    def _populate_signal_tree(self, tree: QTreeWidget | None = None) -> None:
+    def _populate_signal_tree(self, tree: Optional[QTreeWidget] = None) -> None:
         tree = tree or getattr(self, "signal_tree", None)
         if tree is None:
             return
