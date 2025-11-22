@@ -809,8 +809,11 @@ class ACUSimulator(QMainWindow):
             preset = presets.get(text)
             if not isinstance(preset, dict):
                 return
-            # apply values if present
+            # apply values if present; set a short-lived flag so the
+            # manual-edit handler does not interpret these programmatic
+            # updates as user edits (which would switch the combo to 自定义).
             try:
+                self._applying_preset = True
                 if "acu_ip" in preset:
                     self.acu_ip_edit.setText(str(preset.get("acu_ip", "")))
                 if "acu_send_port" in preset:
@@ -827,14 +830,21 @@ class ACUSimulator(QMainWindow):
                     self.target_receive_port_edit.setText(
                         str(preset.get("target_receive_port", ""))
                     )
-            except Exception:
-                pass
+            finally:
+                try:
+                    # small defensive cleanup
+                    self._applying_preset = False
+                except Exception:
+                    pass
         except Exception:
             pass
 
     def _on_manual_device_field_changed(self, *args, **kwargs):
         """Switch device_type combo to '自定义' when user edits fields manually."""
         try:
+            # if we are programmatically applying a preset, ignore these
+            if getattr(self, "_applying_preset", False):
+                return
             if getattr(self, "device_type_combo", None) is None:
                 return
             cur = str(self.device_type_combo.currentText() or "")

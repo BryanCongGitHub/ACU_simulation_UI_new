@@ -12,6 +12,7 @@ title: 文档索引
 - [测试说明 - TESTS](TESTS.md)
 - [变更记录 - CHANGELOG](CHANGELOG.md)
 - [文档索引（原始） - DOCS_INDEX](DOCS_INDEX.md)
+ - [设备预置 - Device Presets](device_presets.md)
 
 说明：将文档放在 `docs/` 目录之后，你可以在 GitHub 仓库的 Pages 设置中启用“Source: branch `test` / folder `/docs`”来发布静态站点（或使用默认分支）。
 
