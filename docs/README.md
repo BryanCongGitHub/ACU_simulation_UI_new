@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/BryanCongGitHub/ACU_simulation_UI_new/actions/workflows/ci.yml/badge.svg)
 
-文档索引：请参阅仓库根的 `DOCS_INDEX.md`（包含 `BUILD.md`、`TESTS.md` 等文档的快速入口与说明）。
+文档索引：文档已移动到 `docs/`，请打开 `docs/index.md` 查看（或启用 GitHub Pages：`Branch: test` + `Folder: /docs` 来发布站点）。
 
 开发者文档：请参阅 `README_DEV.md` 获取开发者运行/测试指引与脚本说明。
 
