@@ -1,0 +1,58 @@
+{
+    "INV1": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49153",
+        "target_ip": "10.2.0.2",
+        "target_receive_port": "49152"
+    },
+    "INV2": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49154",
+        "target_ip": "10.2.0.3",
+        "target_receive_port": "49152"
+    },
+    "INV3": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49155",
+        "target_ip": "10.2.0.4",
+        "target_receive_port": "49152"
+    },
+    "INV4": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49156",
+        "target_ip": "10.2.0.5",
+        "target_receive_port": "49152"
+    },
+    "INV5": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49157",
+        "target_ip": "10.2.0.6",
+        "target_receive_port": "49152"
+    },
+    "INV6": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49158",
+        "target_ip": "10.2.0.7",
+        "target_receive_port": "49152"
+    },
+    "CHU3": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49159",
+        "target_ip": "10.2.0.8",
+        "target_receive_port": "49152"
+    },
+    "CHU4": {
+        "acu_ip": "10.2.0.1",
+        "acu_send_port": "49152",
+        "acu_receive_port": "49160",
+        "target_ip": "10.2.0.9",
+        "target_receive_port": "49152"
+    }
+}

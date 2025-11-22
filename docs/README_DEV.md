@@ -1,3 +1,4 @@
+````markdown
 Developer notes
 ================
 
@@ -8,21 +9,21 @@ Waveform display quick start
 这段指南用于帮助测试或演示新的波形视图配置能力。
 
 1. **信号筛选**：
-  - 左侧树按类别列出所有可用信号；勾选后即刻通过 `WaveformController` 拉取数据并在图例区生成条目。
-  - 取消勾选会同时从控制器 deselect，并移除对应曲线。
+	- 左侧树按类别列出所有可用信号；勾选后即刻通过 `WaveformController` 拉取数据并在图例区生成条目。
+	- 取消勾选会同时从控制器 deselect，并移除对应曲线。
 
 2. **配色管理**：
-  - 工具栏的“配色操作…”下拉包含保存、加载、导入、导出四个动作。
-  - 保存/加载操作使用集中化设置模块，JSON 被存放在 `WaveformDisplay/palette` 键中；导入/导出针对独立 JSON 文件，字段为 `signal_id -> hex`。
-  - 图例中的色块按钮也可快速更改单条曲线颜色。
+	- 工具栏的“配色操作…”下拉包含保存、加载、导入、导出四个动作。
+	- 保存/加载操作使用集中化设置模块，JSON 被存放在 `WaveformDisplay/palette` 键中；导入/导出针对独立 JSON 文件，字段为 `signal_id -> hex`。
+	- 图例中的色块按钮也可快速更改单条曲线颜色。
 
 3. **自动/手动范围**：
-  - “自动范围”复选框切换 Y 轴自动缩放；关闭后可通过鼠标缩放、平移调整手动范围。
-  - 所有范围设置（自动状态、时间轴下拉值、手动 splitter 配置）都会在关闭时写入 `infra/settings_store`，新实例启动后读取。
+	- “自动范围”复选框切换 Y 轴自动缩放；关闭后可通过鼠标缩放、平移调整手动范围。
+	- 所有范围设置（自动状态、时间轴下拉值、手动 splitter 配置）都会在关闭时写入 `infra/settings_store`，新实例启动后读取。
 
 4. **即时反馈**：
-  - `预览缩略图` 按钮可截取当前绘图快照，便于在 PR 或文档中展示效果。
-  - 波形数据导出支持 CSV/JSON，导出路径也会通过集中设置持久化。
+	- `预览缩略图` 按钮可截取当前绘图快照，便于在 PR 或文档中展示效果。
+	- 波形数据导出支持 CSV/JSON，导出路径也会通过集中设置持久化。
 
 若遇到颜色或范围未恢复的情况，可检查 `settings_store.py` 对应的 `WaveformSettings` dataclass；测试文件 `tests/test_waveform_display_regressions.py` 提供回归样例。
 
@@ -32,15 +33,15 @@ Some environments (notably certain CI and Windows setups) can fail when pytest p
 
 - In PowerShell:
 
-  ```powershell
-  $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
-  ```
+	```powershell
+	$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
+	```
 
 - In Bash:
 
-  ```bash
-  export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  ```
+	```bash
+	export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+	```
 
 This repository includes convenience scripts:
 
@@ -68,11 +69,11 @@ pytest -q -vv
 
 Notes:
 - `QT_QPA_PLATFORM=offscreen` disables native windowing so tests that create widgets can run
-  on CI runners without a display server.
+	on CI runners without a display server.
 - We provide `tests/conftest.py` which creates a `QApplication` and patches modal dialogs
-  (`QMessageBox`, `QFileDialog`) during tests to avoid blocking interactive prompts.
+	(`QMessageBox`, `QFileDialog`) during tests to avoid blocking interactive prompts.
 - If you see warnings about missing fonts from Qt, they are usually harmless in CI; consider
-  installing `libfontconfig1` / fonts on the runner if necessary.
+	installing `libfontconfig1` / fonts on the runner if necessary.
 
 CI (GitHub Actions)
 --------------------
@@ -93,31 +94,31 @@ The branch consolidates UI migration work for the ACUSimulator waveform view and
 adds several UX improvements and test fixes. Summary of the important changes:
 
 - **Compact, interactive legend**: the waveform view now shows a compact legend
-  below the plot with a small visibility checkbox, a color swatch button and a
-  short label for each selected signal. Clicking the checkbox toggles curve
-  visibility; clicking the swatch opens a color picker to change the curve
-  color.
+	below the plot with a small visibility checkbox, a color swatch button and a
+	short label for each selected signal. Clicking the checkbox toggles curve
+	visibility; clicking the swatch opens a color picker to change the curve
+	color.
 - **Palette save / load**: users can save the current signal color mapping into
-  `QSettings` (stored as JSON under `WaveformDisplay/palette`) and reload it later
-  to restore custom palettes.
+	`QSettings` (stored as JSON under `WaveformDisplay/palette`) and reload it later
+	to restore custom palettes.
 - **Programmatic visibility control**: `waveform_plot.py` exposes
-  `set_curve_visible(signal_id, visible)` used by the interactive legend.
+	`set_curve_visible(signal_id, visible)` used by the interactive legend.
 - **CSV export & UX polish**: improved CSV export headers (use display names),
-  thumbnail preview button, theme/legend/grid toggles and signal tree tooltips.
+	thumbnail preview button, theme/legend/grid toggles and signal tree tooltips.
 - **Tests & pytest config fixes**: restored a local `qapp` fixture in one test
-  and removed a forced `-p pytestqt.plugin` addopt from `pyproject.toml` to avoid
-  duplicate pytest-qt plugin registration issues. The full test-suite was run
-  locally in the `acu_sim_311` environment and reports `43 passed`.
+	and removed a forced `-p pytestqt.plugin` addopt from `pyproject.toml` to avoid
+	duplicate pytest-qt plugin registration issues. The full test-suite was run
+	locally in the `acu_sim_311` environment and reports `43 passed`.
 
 Developer notes / how this was tested
 ------------------------------------
 
 - Tests were run locally with `PySide6 6.10.0` and `pytest-qt` available.
 - If you prefer to disable plugin auto-discovery (some CI setups), set
-  `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` and ensure the `pytest-qt` plugin is
-  explicitly loaded (or use the provided `run_pytest_no_pyc.bat` / PowerShell
-  wrapper). The branch chooses to let pytest auto-discover plugins by default
-  to remain compatible with typical developer environments.
+	`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` and ensure the `pytest-qt` plugin is
+	explicitly loaded (or use the provided `run_pytest_no_pyc.bat` / PowerShell
+	wrapper). The branch chooses to let pytest auto-discover plugins by default
+	to remain compatible with typical developer environments.
 
 If you'd like, I can also add a short QA checklist for the PR (manual steps to
 verify color save/load, legend visibility toggles, and CSV export) and a small
@@ -130,9 +131,9 @@ The palette JSON is a simple mapping of signal id -> hex color string. Example:
 
 ```json
 {
-  "1": "#FF0000",
-  "2": "#00FF00",
-  "temperature": "#3366FF"
+	"1": "#FF0000",
+	"2": "#00FF00",
+	"temperature": "#3366FF"
 }
 ```
 
@@ -147,7 +148,6 @@ PR QA checklist
 - Click `导入配色` with the exported file and confirm colors are applied.
 - Export CSV for selected signals and confirm header uses signal display names.
 - Click `预览缩略图` and confirm a thumbnail appears in the toolbar.
-
 CI UI Test Results (artifact)
 -----------------------------
 CI runs targeted UI tests (palette save/load and legend interaction) and uploads
@@ -195,10 +195,12 @@ CI 行为 / Artifact
 
 注意（CI 状态）
 - 我注意到最近一次 CI 运行显示未通过（见 Actions 列表）。请在 GitHub Actions 的该 workflow 运行页面检查：
-  1. 下载 `ui-tests-output` artifact（如果存在）并查看 pytest 日志；
-  2. 查看 Actions 日志中具体失败步骤和 traceback；
-  3. 若需要，我可以帮你解析失败日志并提出修复建议。
+	1. 下载 `ui-tests-output` artifact（如果存在）并查看 pytest 日志；
+	2. 查看 Actions 日志中具体失败步骤和 traceback；
+	3. 若需要，我可以帮你解析失败日志并提出修复建议。
 
 如果你希望我把 pytest 输出也写回 PR 描述（供审核时直接可见），我可以从 artifact 中提取并生成一个 ready-to-paste 的文本块。
 
 Add these steps to the PR description so reviewers can quickly validate the UX.
+
+````

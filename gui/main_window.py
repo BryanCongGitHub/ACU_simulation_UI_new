@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QComboBox,
     QGridLayout,
     QSplitter,
     QTableWidget,
@@ -392,6 +393,20 @@ class ACUSimulator(QMainWindow):
         self.target_ip_edit = QLineEdit("10.2.0.5")
         self.target_receive_port_edit = QLineEdit("49152")
 
+        # Device preset/type selector (自动填充 IP/端口)
+        try:
+            self.device_type_combo = QComboBox()
+            self.device_type_combo.setObjectName("device_type_combo")
+        except Exception:
+            self.device_type_combo = None
+
+        # Insert device type combo above the other fields if available
+        try:
+            if getattr(self, "device_type_combo", None) is not None:
+                device_form.addRow(QLabel("设备类型"), self.device_type_combo)
+        except Exception:
+            pass
+
         device_form.addRow(QLabel("ACU IP"), self.acu_ip_edit)
         device_form.addRow(QLabel("ACU Send Port"), self.acu_send_port_edit)
         device_form.addRow(QLabel("ACU Receive Port"), self.acu_receive_port_edit)
@@ -409,6 +424,39 @@ class ACUSimulator(QMainWindow):
         btns_layout.addWidget(self.device_save_btn)
         btns_layout.addWidget(self.device_restore_btn)
         device_form.addRow(btns)
+
+        # Wire up device preset combo and manual edits
+        try:
+            if getattr(self, "device_type_combo", None) is not None:
+                presets = self._load_device_presets()
+                # keep an ordered list: presets keys then 自定义
+                names = list(presets.keys())
+                names.append("自定义")
+                self.device_type_combo.addItems(names)
+                self.device_type_combo.currentTextChanged.connect(
+                    lambda txt: self._on_device_preset_changed(txt, presets)
+                )
+                # when user edits IP/port manually, switch to 自定义
+                try:
+                    self.acu_ip_edit.textChanged.connect(
+                        self._on_manual_device_field_changed
+                    )
+                    self.acu_send_port_edit.textChanged.connect(
+                        self._on_manual_device_field_changed
+                    )
+                    self.acu_receive_port_edit.textChanged.connect(
+                        self._on_manual_device_field_changed
+                    )
+                    self.target_ip_edit.textChanged.connect(
+                        self._on_manual_device_field_changed
+                    )
+                    self.target_receive_port_edit.textChanged.connect(
+                        self._on_manual_device_field_changed
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         # Controls (left panel actions)
         controls = QWidget()
@@ -625,18 +673,46 @@ class ACUSimulator(QMainWindow):
                 self.target_receive_port_edit.setText(str(config.target_receive_port))
             except Exception:
                 pass
+            # apply device preset selection if available
+            try:
+                if getattr(self, "device_type_combo", None) is not None:
+                    preset_name = getattr(config, "device_preset", "") or ""
+                    if preset_name and preset_name in [
+                        self.device_type_combo.itemText(i)
+                        for i in range(self.device_type_combo.count())
+                    ]:
+                        self.device_type_combo.setCurrentText(preset_name)
+                    else:
+                        # default to 自定义
+                        try:
+                            self.device_type_combo.setCurrentText("自定义")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         except Exception:
             pass
 
     def save_device_settings(self):
         """Persist current device sidebar fields via the centralized store."""
         try:
+            # determine selected preset name if any
+            preset = ""
+            try:
+                if getattr(self, "device_type_combo", None) is not None:
+                    cur = str(self.device_type_combo.currentText() or "")
+                    if cur and cur != "自定义":
+                        preset = cur
+            except Exception:
+                preset = ""
+
             data = DeviceConfigSettings(
                 acu_ip=str(self.acu_ip_edit.text()),
                 acu_send_port=str(self.acu_send_port_edit.text()),
                 acu_receive_port=str(self.acu_receive_port_edit.text()),
                 target_ip=str(self.target_ip_edit.text()),
                 target_receive_port=str(self.target_receive_port_edit.text()),
+                device_preset=preset,
             )
             save_device_config(data)
             try:
@@ -701,6 +777,86 @@ class ACUSimulator(QMainWindow):
             logger.exception("_on_device_apply unexpected error")
             self._show_error(f"应用失败: {exc}")
             return False
+
+    # ---- Device preset helpers ----
+    def _load_device_presets(self) -> dict:
+        """Load presets from `infra/device_presets.json` next to the codebase.
+
+        Returns a mapping name->config dict. Best-effort; on error returns {}.
+        """
+        try:
+            import json
+
+            path = BASE_DIR / "infra" / "device_presets.json"
+            if not path.exists():
+                return {}
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            logger.exception("加载 device_presets.json 失败")
+        return {}
+
+    def _on_device_preset_changed(self, text: str, presets: dict) -> None:
+        """Apply preset values into the device fields when a preset is selected.
+
+        Selecting "自定义" leaves fields as-is.
+        """
+        try:
+            if not text or text == "自定义":
+                return
+            preset = presets.get(text)
+            if not isinstance(preset, dict):
+                return
+            # apply values if present; set a short-lived flag so the
+            # manual-edit handler does not interpret these programmatic
+            # updates as user edits (which would switch the combo to 自定义).
+            try:
+                self._applying_preset = True
+                if "acu_ip" in preset:
+                    self.acu_ip_edit.setText(str(preset.get("acu_ip", "")))
+                if "acu_send_port" in preset:
+                    self.acu_send_port_edit.setText(
+                        str(preset.get("acu_send_port", ""))
+                    )
+                if "acu_receive_port" in preset:
+                    self.acu_receive_port_edit.setText(
+                        str(preset.get("acu_receive_port", ""))
+                    )
+                if "target_ip" in preset:
+                    self.target_ip_edit.setText(str(preset.get("target_ip", "")))
+                if "target_receive_port" in preset:
+                    self.target_receive_port_edit.setText(
+                        str(preset.get("target_receive_port", ""))
+                    )
+            finally:
+                try:
+                    # small defensive cleanup
+                    self._applying_preset = False
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_manual_device_field_changed(self, *args, **kwargs):
+        """Switch device_type combo to '自定义' when user edits fields manually."""
+        try:
+            # if we are programmatically applying a preset, ignore these
+            if getattr(self, "_applying_preset", False):
+                return
+            if getattr(self, "device_type_combo", None) is None:
+                return
+            cur = str(self.device_type_combo.currentText() or "")
+            if cur != "自定义":
+                # set current to 自定义 without emitting change handling
+                try:
+                    self.device_type_combo.blockSignals(True)
+                    self.device_type_combo.setCurrentText("自定义")
+                finally:
+                    self.device_type_combo.blockSignals(False)
+        except Exception:
+            pass
 
     def restore_device_defaults(self):
         """Restore device UI fields to defaults from device model and comm config."""

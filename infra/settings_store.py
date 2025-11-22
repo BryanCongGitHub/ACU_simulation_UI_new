@@ -25,6 +25,8 @@ class DeviceConfigSettings:
     acu_receive_port: str = ""
     target_ip: str = ""
     target_receive_port: str = ""
+    # optional preset name selected by the user (e.g. INV1, INV2)
+    device_preset: str = ""
 
 
 @dataclass
@@ -88,6 +90,9 @@ def load_device_config(
                     "target_receive_port", getattr(defaults, "target_receive_port", "")
                 )
             ),
+            device_preset=str(
+                settings.value("device_preset", getattr(defaults, "device_preset", ""))
+            ),
         )
     finally:
         settings.endGroup()
@@ -105,6 +110,11 @@ def save_device_config(data: DeviceConfigSettings) -> None:
         settings.setValue("acu_receive_port", data.acu_receive_port)
         settings.setValue("target_ip", data.target_ip)
         settings.setValue("target_receive_port", data.target_receive_port)
+        try:
+            settings.setValue("device_preset", data.device_preset)
+        except Exception:
+            # best-effort: do not break save if this key is not supported
+            pass
     finally:
         settings.endGroup()
         settings.endGroup()

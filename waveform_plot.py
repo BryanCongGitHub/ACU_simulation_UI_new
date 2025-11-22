@@ -38,6 +38,7 @@ class WaveformPlotWidget(QWidget):
         self._manual_x_override = False
         self._programmatic_x_change = False
         self._set_y_action = None
+        self._origin_timestamp = None  # track earliest timestamp ever seen
         self.init_ui()
 
     def init_ui(self):
@@ -123,9 +124,52 @@ class WaveformPlotWidget(QWidget):
 
         curve = pg.PlotDataItem(pen=pen, name=signal_info["name"])
 
+        # prepare optional band items (upper/lower + fill) to preserve min/max per block
+        band_upper = None
+        band_lower = None
+        band_fill = None
+        try:
+            # create cosmetic pens (width 0) so lines remain thin in pixels
+            up_pen = QPen(QColor(color))
+            up_pen.setWidth(0)
+            up_pen.setCosmetic(True)
+            band_upper = pg.PlotDataItem(pen=up_pen)
+            band_upper.setZValue(curve.zValue() - 1)
+
+            low_pen = QPen(QColor(color))
+            low_pen.setWidth(0)
+            low_pen.setCosmetic(True)
+            band_lower = pg.PlotDataItem(pen=low_pen)
+            band_lower.setZValue(curve.zValue() - 1)
+
+            # semi-transparent brush for fill (use alpha so band isn't visually thick)
+            fill_color = QColor(color)
+            fill_color.setAlpha(60)  # ~25% opaque
+            brush = pg.mkBrush(fill_color)
+
+            # try to create FillBetweenItem if available
+            try:
+                band_fill = pg.FillBetweenItem(band_upper, band_lower, brush=brush)
+            except Exception:
+                band_fill = None
+        except Exception:
+            band_upper = band_lower = band_fill = None
+
         self.main_plot.addItem(curve)
+        if band_upper is not None and band_lower is not None:
+            try:
+                self.main_plot.addItem(band_upper)
+                self.main_plot.addItem(band_lower)
+                if band_fill is not None:
+                    self.main_plot.addItem(band_fill)
+            except Exception:
+                pass
+
         self.curves[signal_id] = {
             "curve": curve,
+            "band_upper": band_upper,
+            "band_lower": band_lower,
+            "band_fill": band_fill,
             "type": signal_info["type"],
             "info": signal_info,
             "color": color,
@@ -169,6 +213,37 @@ class WaveformPlotWidget(QWidget):
                     curve_info["curve"] = new_curve
                 except Exception:
                     pass
+            # update band items if present
+            try:
+                upper = curve_info.get("band_upper")
+                lower = curve_info.get("band_lower")
+                if upper is not None:
+                    try:
+                        pen = QPen(QColor(color_hex))
+                        pen.setWidth(0)
+                        pen.setCosmetic(True)
+                        upper.setPen(pen)
+                    except Exception:
+                        pass
+                if lower is not None:
+                    try:
+                        pen = QPen(QColor(color_hex))
+                        pen.setWidth(0)
+                        pen.setCosmetic(True)
+                        lower.setPen(pen)
+                    except Exception:
+                        pass
+                fill = curve_info.get("band_fill")
+                if fill is not None:
+                    try:
+                        fc = QColor(color_hex)
+                        fc.setAlpha(60)
+                        brush = pg.mkBrush(fc)
+                        fill.setBrush(brush)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         except Exception:
             logger.exception("设置曲线颜色失败")
 
@@ -267,15 +342,53 @@ class WaveformPlotWidget(QWidget):
         if not timestamps or len(timestamps) < 2:
             return
 
-        start_time = timestamps[0]
-        relative_times = [t - start_time for t in timestamps]
+        # keep a stable origin so the x-axis can continue to grow even if
+        # we drop older samples for rendering performance
+        ts0 = timestamps[0]
+        if self._origin_timestamp is None or ts0 < self._origin_timestamp:
+            self._origin_timestamp = ts0
 
-        # 限制显示点数
-        if len(relative_times) > self.max_display_points:
-            start_idx = len(relative_times) - self.max_display_points
-            display_times = relative_times[start_idx:]
-        else:
-            display_times = relative_times
+        origin = self._origin_timestamp
+        relative_times = [t - origin for t in timestamps]
+
+        # 选择要显示的时间段：优先使用 DataBuffer 提供的索引选择器（包含基于采样估算的下采样）
+        indices = []
+        try:
+            db = getattr(self.controller, "data_buffer", None)
+            if db is not None and hasattr(db, "get_window_indices"):
+                indices = db.get_window_indices(
+                    self.current_time_range, self.max_display_points
+                )
+                # convert indices to relative times w.r.t origin
+                if indices:
+                    timestamps = self.controller.get_timestamps()
+                    # origin already tracked in widget
+                    origin = self._origin_timestamp or (
+                        timestamps[0] if timestamps else 0
+                    )
+                    display_times = [
+                        timestamps[i] - origin for i in indices if i < len(timestamps)
+                    ]
+                else:
+                    display_times = []
+            else:
+                # fallback to previous behavior if helper not available
+                latest_rel = relative_times[-1] if relative_times else 0
+                display_start = max(0.0, latest_rel - float(self.current_time_range))
+                indices = [
+                    i for i, t in enumerate(relative_times) if t >= display_start
+                ]
+                if not indices:
+                    return
+                if len(indices) > self.max_display_points:
+                    import math
+
+                    step = math.ceil(len(indices) / float(self.max_display_points))
+                    indices = indices[::step]
+                display_times = [relative_times[i] for i in indices]
+        except Exception:
+            # on any error, abort plotting
+            return
 
         # 为每个信号更新数据
         for signal_id, curve_info in self.curves.items():
@@ -284,11 +397,20 @@ class WaveformPlotWidget(QWidget):
                 if not values:
                     continue
 
-                if len(values) > self.max_display_points:
-                    value_start = len(values) - self.max_display_points
-                    display_values = values[value_start:]
-                else:
-                    display_values = values
+                # 以与 display_times 相同的索引从 values 中抽取数据点
+                # 如果数据长度与 timestamps 对齐（DataBuffer 保证），直接按 indices 抽取
+                try:
+                    values_list = list(values)
+                    display_values = [
+                        values_list[i] for i in indices if i < len(values_list)
+                    ]
+                except Exception:
+                    # 退回到原先的末尾切片行为（降级兼容）
+                    if len(values) > self.max_display_points:
+                        value_start = len(values) - self.max_display_points
+                        display_values = values[value_start:]
+                    else:
+                        display_values = values
 
                 # 确保数据长度匹配
                 min_len = min(len(display_times), len(display_values))
@@ -332,10 +454,89 @@ class WaveformPlotWidget(QWidget):
                         curve_info["curve"].setData(step_times, step_values)
 
                 else:
-                    # 模拟信号：直接绘制
-                    plot_times = np.array(plot_times)
-                    plot_values = np.array(plot_values)
-                    curve_info["curve"].setData(plot_times, plot_values)
+                    # 模拟信号：按块计算 (min, max, last) 并绘制带状区间 + last 折线
+                    # 为此需要知道 full blocks 对应的索引块（由 indices 推断）
+                    try:
+                        # 如果 controller 提供 data_buffer，重建 full indices -> blocks
+                        db = getattr(self.controller, "data_buffer", None)
+                        timestamps = self.controller.get_timestamps()
+                        if db is not None and timestamps:
+                            # compute full indices in window
+                            latest = timestamps[-1]
+                            start = latest - float(self.current_time_range)
+                            full_indices = [
+                                i for i, t in enumerate(timestamps) if t >= start
+                            ]
+                            if not full_indices:
+                                continue
+                            if len(full_indices) <= self.max_display_points:
+                                blocks = [[i] for i in full_indices]
+                            else:
+                                import math
+
+                                step = math.ceil(
+                                    len(full_indices) / float(self.max_display_points)
+                                )
+                                blocks = [
+                                    full_indices[i : i + step]
+                                    for i in range(0, len(full_indices), step)
+                                ]
+                        else:
+                            # fallback: evenly map display_values to display_times
+                            blocks = None
+
+                        values_list = list(values)
+
+                        if blocks:
+                            mins = []
+                            maxs = []
+                            lasts = []
+                            times = []
+                            for blk in blocks:
+                                blk_vals = [
+                                    values_list[k] for k in blk if k < len(values_list)
+                                ]
+                                if not blk_vals:
+                                    continue
+                                mins.append(min(blk_vals))
+                                maxs.append(max(blk_vals))
+                                lasts.append(blk_vals[-1])
+                                # time representative - use last timestamp in block
+                                times.append((timestamps[blk[-1]] - origin))
+
+                            if not times:
+                                continue
+
+                            times_arr = np.array(times)
+                            lasts_arr = np.array(lasts)
+                            mins_arr = np.array(mins)
+                            maxs_arr = np.array(maxs)
+
+                            # set main curve to last values
+                            try:
+                                curve_info["curve"].setData(times_arr, lasts_arr)
+                            except Exception:
+                                pass
+
+                            # set band curves and fill if available
+                            upper = curve_info.get("band_upper")
+                            lower = curve_info.get("band_lower")
+                            try:
+                                if upper is not None:
+                                    upper.setData(times_arr, maxs_arr)
+                                if lower is not None:
+                                    lower.setData(times_arr, mins_arr)
+                                # If FillBetweenItem is unavailable we could draw
+                                # a semi-transparent polygon manually as fallback.
+                            except Exception:
+                                pass
+                        else:
+                            # fallback to simple plotting
+                            plot_times = np.array(plot_times)
+                            plot_values = np.array(plot_values)
+                            curve_info["curve"].setData(plot_times, plot_values)
+                    except Exception as e:
+                        logger.exception(f"模拟信号带状绘制失败: {e}")
 
             except Exception as e:
                 logger.error(f"更新信号 {signal_id} 失败: {e}")
@@ -435,6 +636,7 @@ class WaveformPlotWidget(QWidget):
 
     def clear_plots(self):
         """清空所有绘图"""
+        self._origin_timestamp = None
         for signal_id in list(self.curves.keys()):
             self.remove_signal_plot(signal_id)
 
