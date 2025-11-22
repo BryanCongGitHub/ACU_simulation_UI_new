@@ -2,6 +2,8 @@
 
 ![CI](https://github.com/BryanCongGitHub/ACU_simulation_UI_new/actions/workflows/ci.yml/badge.svg)
 
+文档索引：请参阅仓库根的 `DOCS_INDEX.md`（包含 `BUILD.md`、`TESTS.md` 等文档的快速入口与说明）。
+
 开发者文档：请参阅 `README_DEV.md` 获取开发者运行/测试指引与脚本说明。
 
 本项目已开始从单文件/紧耦合结构重构为 MVC + 可插拔协议 架构，目标：
