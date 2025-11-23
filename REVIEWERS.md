@@ -1,3 +1,4 @@
+````markdown
 Review checklist for `feature/gui-migration-waveform-settings`
 
 - Summary:
@@ -37,3 +38,13 @@ pytest -q tests/test_export_csv_strict_pytestqt.py
   - @team-gui (UI/UX)
   - @team-testing (pytest-qt / CI)
   - @team-backend (persistence/QSettings)
+
+- Recent changes in this branch (important for reviewers):
+  - **Device presets**: Added `infra/device_presets.json` including INV1..INV6 (network parameters and ports).
+  - **UI integration**: `gui/main_window.py` now exposes a device preset dropdown, applies preset values to device fields, and marks manual edits as “自定义”.
+  - **Persistence**: `infra/settings_store.py` extended to persist the selected `device_preset` using QSettings.
+  - **Tests & docs**: Added `tests/test_device_presets_ui.py` (pytest-qt) and `docs/device_presets.md` documenting format and priority vs `acu_config.json`.
+  - **Fixes**: Guarded programmatic UI updates with `_applying_preset` to avoid treating preset application as manual edits; resolved pre-commit formatting changes.
+  - **Dev/CI**: Added a GitHub Actions workflow to produce a PyInstaller build and upload `dist/` as an artifact for review/QA (see `.github/workflows/pyinstaller_build.yml`).
+
+````
