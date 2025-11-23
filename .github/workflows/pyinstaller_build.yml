@@ -43,7 +43,8 @@ jobs:
 
       - name: Run PyInstaller
         run: |
-          pyinstaller build\acu_simulation.spec --noconfirm --clean
+          # Avoid relying on UPX being installed on the runner
+          pyinstaller build\acu_simulation.spec --noconfirm --clean --noupx
 
       - name: Zip dist
         run: |
