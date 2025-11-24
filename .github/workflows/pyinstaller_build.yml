@@ -60,14 +60,3 @@ jobs:
             dist/
             acu_simulation_dist.zip
 
-      - name: Create GitHub Release and upload asset
-        if: github.ref == 'refs/heads/master'
-        uses: ncipollo/release-action@v1
-        with:
-          tag: v${{ github.run_number }}-${{ github.sha }}
-          name: acu_simulation build ${{ github.run_number }}
-          body: Automated PyInstaller build artifact
-          draft: false
-          prerelease: true
-          files: |
-            ./acu_simulation_dist.zip
