@@ -40,15 +40,20 @@ jobs:
 
       - name: Compute SHA256
         id: hash
+        shell: powershell
         run: |
-          powershell -Command "$hash=(Get-FileHash artifact.zip -Algorithm SHA256).Hash; Write-Output \"SHA256=$hash\"; echo "::set-output name=sha::$hash""
+          $hash = (Get-FileHash artifact.zip -Algorithm SHA256).Hash
+          Write-Host "SHA256=$hash"
+          # write output to GITHUB_OUTPUT (recommended over deprecated set-output)
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "sha=$hash"
 
       - name: Determine release tag
         id: tag
+        shell: bash
         run: |
-          if [ "$GITHUB_REF" != "" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+          elif [[ -n "${{ github.event.inputs.tag }}" ]]; then
             echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
           else
             echo "tag=v${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
