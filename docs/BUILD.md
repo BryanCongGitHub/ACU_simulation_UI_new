@@ -64,4 +64,33 @@ python -m pip install pyinstaller pyqtgraph pyside6
 1. 在 `docs/BUILD.md` 或 `docs/README_DEV.md` 中记录变更的要点与所需的额外打包步骤。
 2. 在 PR 描述中列出与构建相关的验证步骤（例如：`python -m PyInstaller build\acu_simulation.spec --noconfirm`，运行 EXE 并观察控制台）。
 
+### 防火墙与部署注意
+
+打包后的可执行文件在 Windows 上运行时，Windows Defender 防火墙（以及部分第三方安全软件）的“按程序”放行规则会绑定到 EXE 的绝对路径。常见问题与建议：
+
+- 问题：把 `dist\ACU_simulation_UI` 整个目录复制到另一台机器或不同路径后，之前为原路径创建的防火墙规则不会自动生效，因此新目录下的 EXE 可能无法接收外网 UDP 数据（尽管 Wireshark 仍能捕获到包）。
+- 建议：每次移动/复制 EXE 到新路径后，请为新的可执行文件路径重新添加入站/出站 UDP 放行规则，或在目标机器上使用“允许应用通过防火墙”界面为该 EXE 添加规则。
+
+示例 PowerShell（管理员）操作：
+
+```powershell
+# 删除旧规则（如已存在）
+Remove-NetFirewallRule -DisplayName 'ACU Simulation UI UDP'
+
+# 为当前 EXE 路径创建入站与出站 UDP 放行（请替换 $exe 为实际路径）
+$exe = 'E:\path\to\ACU_simulation_UI\ACU_simulation_UI.exe'
+New-NetFirewallRule -DisplayName 'ACU Simulation UI UDP' `
+	-Direction Inbound -Program $exe -Action Allow -Protocol UDP `
+	-LocalPort 49150-49200 -Profile Domain,Private,Public
+New-NetFirewallRule -DisplayName 'ACU Simulation UI UDP Out' `
+	-Direction Outbound -Program $exe -Action Allow -Protocol UDP `
+	-RemotePort 49150-49200 -Profile Domain,Private,Public
+```
+
+验证建议：
+
+- 使用 `Get-NetFirewallRule -DisplayName 'ACU Simulation UI UDP' | Get-NetFirewallApplicationFilter` 检查 `Program` 字段是否指向当前 EXE 路径。 
+- 若 Wireshark 能看到包但程序未收到，优先检查防火墙规则、生效的网络 Profile（Domain/Private/Public）以及本机上是否有其他安全软件拦截。 
+- 在产品说明或 Release notes 中记录“本次使用的是本地构建 / CI 构建”，并附上 SHA256，方便追溯与核验。
+
 ````
