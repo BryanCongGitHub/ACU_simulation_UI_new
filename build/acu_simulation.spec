@@ -46,6 +46,11 @@ for fname in ('palette.json', 'signal_definitions.json', 'acu_config.json'):
     if os.path.isfile(p):
         datas.append((p, '.'))
 
+# Include infra/device_presets.json so presets are available in frozen app
+preset_src = os.path.join(root_dir, 'infra', 'device_presets.json')
+if os.path.isfile(preset_src):
+    datas.append((preset_src, os.path.join('infra')))
+
 # Include protocol templates folder if present
 tpl_src = os.path.join(root_dir, 'protocol_templates')
 if os.path.isdir(tpl_src):

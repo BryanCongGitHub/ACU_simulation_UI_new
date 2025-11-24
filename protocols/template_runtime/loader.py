@@ -9,6 +9,7 @@ import yaml
 
 from .adapters.template_protocol import TemplateProtocol
 from .schema import CategorySpec, TemplateConfigError, TemplateSpec, parse_template_spec
+from infra.app_paths import resource_path
 
 
 class ProtocolTemplateLoader:
@@ -38,8 +39,8 @@ class ProtocolTemplateLoader:
 
     @classmethod
     def default(cls) -> "ProtocolTemplateLoader":
-        template_path = (
-            Path(__file__).resolve().parents[1] / "templates" / "acusim.yaml"
+        template_path = resource_path(
+            "protocols", "templates", "acusim.yaml", must_exist=True
         )
         return cls(template_path)
 

@@ -6,9 +6,11 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
+from infra.app_paths import get_app_base_dir, get_dist_dir
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-LOG_PATH = BASE_DIR / "acu_simulator.log"
+
+BASE_DIR = get_app_base_dir()
+LOG_PATH = get_dist_dir() / "acu_simulator.log"
 
 
 def configure_logging(
