@@ -18,6 +18,8 @@ from protocols.template_runtime.schema import (
     ValueFieldSpec,
 )
 
+from infra.app_paths import resource_path
+
 PREF_VERSION = 1
 PREF_STORAGE_KEY = "protocol_field_selection"
 SEND_PREF_CATEGORY = "__send__"
@@ -124,7 +126,17 @@ class ProtocolFieldService:
         config_path: Optional[Path] = None,
     ) -> None:
         self._loader = loader or ProtocolTemplateLoader.default()
-        default_config = Path(__file__).resolve().parents[1] / "acu_config.json"
+        default_config = resource_path("acu_config.json", prefer_write=True)
+        if not default_config.exists():
+            template_config = resource_path("acu_config.json", must_exist=True)
+            if template_config.exists() and template_config != default_config:
+                try:
+                    default_config.parent.mkdir(parents=True, exist_ok=True)
+                    default_config.write_text(
+                        template_config.read_text(encoding="utf-8"), encoding="utf-8"
+                    )
+                except OSError:
+                    pass
         self._config_path = Path(config_path) if config_path else default_config
         self._send_fields: Dict[str, SendFieldInfo] = {}
         self._receive_fields: Dict[str, ReceiveFieldInfo] = {}

@@ -6,7 +6,6 @@ import time
 from datetime import datetime
 from collections import OrderedDict, defaultdict, deque
 from typing import Any, Deque, Dict, List, Optional, Tuple
-from pathlib import Path
 import logging
 
 from PySide6.QtWidgets import (
@@ -57,6 +56,7 @@ from views.event_bus import ViewEventBus
 from gui.settings_dialog import SettingsDialog
 from gui.protocol_field_browser import ProtocolFieldBrowser
 
+from infra.app_paths import get_app_base_dir, resource_path
 from infra.settings_store import (
     DeviceConfigSettings,
     load_device_config,
@@ -73,8 +73,8 @@ from controllers.protocol_field_service import (
 from model.control_state import ControlState
 from model.device import Device, DeviceConfig
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_PATH = BASE_DIR / "acu_config.json"
+BASE_DIR = get_app_base_dir()
+CONFIG_PATH = resource_path("acu_config.json", prefer_write=True)
 logger = logging.getLogger("ACUSim")
 
 ParseTask = Tuple[bytes, str, int, str]
@@ -787,7 +787,7 @@ class ACUSimulator(QMainWindow):
         try:
             import json
 
-            path = BASE_DIR / "infra" / "device_presets.json"
+            path = resource_path("infra", "device_presets.json", must_exist=True)
             if not path.exists():
                 return {}
             with open(path, "r", encoding="utf-8") as fh:
