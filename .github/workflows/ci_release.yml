@@ -62,23 +62,10 @@ jobs:
             echo "tag=v${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create GitHub release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Create Release and upload asset (softprops)
+        uses: softprops/action-gh-release@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ steps.tag.outputs.tag }}
-          release_name: "ACU_simulation_UI ${{ steps.tag.outputs.tag }}"
-          body: |
-            Automated build from run ${{ github.run_id }}
-            SHA256: ${{ steps.hash.outputs.sha }}
-          draft: false
-          prerelease: false
-
-      - name: Upload release asset
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifact.zip
-          asset_name: ACU_simulation_UI_${{ steps.tag.outputs.tag }}.zip
-          asset_content_type: application/zip
+          # upload a single clean zip as the release asset
+          files: artifact.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
